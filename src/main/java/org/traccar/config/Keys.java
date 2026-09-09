@@ -558,6 +558,15 @@ public final class Keys {
             0.01);
 
     /**
+     * Ignore positions without a valid fix when deciding geofence and trip events. Such a position has no coordinates
+     * to reason about: it neither leaves a geofence nor moves the vehicle. Set to false to restore the stock behaviour.
+     */
+    public static final ConfigKey<Boolean> EVENT_IGNORE_INVALID_POSITIONS = new BooleanConfigKey(
+            "event.ignoreInvalidPositions",
+            List.of(KeyType.CONFIG, KeyType.DEVICE),
+            true);
+
+    /**
      * Enable in-memory database instead of an SQL database.
      */
     public static final ConfigKey<Boolean> DATABASE_MEMORY = new BooleanConfigKey(

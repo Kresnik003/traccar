@@ -15,6 +15,8 @@
  */
 package org.traccar.handler;
 
+import org.traccar.config.Keys;
+import org.traccar.helper.model.AttributeUtil;
 import org.traccar.helper.model.GeofenceUtil;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
@@ -33,6 +35,23 @@ public class GeofenceHandler extends BasePositionHandler {
 
     @Override
     public void onPosition(Position position, Callback callback) {
+
+        // A position without a fix says nothing about where the device is. Computing
+        // geofences from its coordinates puts the device outside every geofence, and
+        // GeofenceEventHandler then reports an exit that never happened. A sleeping
+        // tracker that heartbeats without a fix would leave and re-enter its geofence
+        // several times a day. Carry over the last known geofences instead, the same
+        // way DistanceHandler and OutdatedHandler carry over the last known fix.
+        if (!position.getValid()
+                && AttributeUtil.lookup(
+                        cacheManager, Keys.EVENT_IGNORE_INVALID_POSITIONS, position.getDeviceId())) {
+            Position last = cacheManager.getPosition(position.getDeviceId());
+            if (last != null && last.getGeofenceIds() != null) {
+                position.setGeofenceIds(last.getGeofenceIds());
+            }
+            callback.processed(false);
+            return;
+        }
 
         List<Long> geofenceIds = GeofenceUtil.getCurrentGeofences(cacheManager, position);
         if (!geofenceIds.isEmpty()) {
