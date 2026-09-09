@@ -35,7 +35,9 @@ import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
+import java.util.ArrayDeque;
 import java.util.Date;
+import java.util.stream.Collectors;
 
 public class MotionEventHandler extends BasePositionEventHandler {
 
@@ -61,6 +63,17 @@ public class MotionEventHandler extends BasePositionEventHandler {
         }
 
         var attributeProvider = new AttributeUtil.CacheProvider(cacheManager, deviceId);
+
+        // A position without a fix carries no information about movement: it has no
+        // coordinates to measure against, and the new trip logic measures distance,
+        // not speed. Feeding it zero coordinates reads as a jump of thousands of
+        // kilometres, which opens a trip that a later heartbeat then closes, so a
+        // parked vehicle reports moving and stopped without ever leaving the garage.
+        if (!position.getValid()
+                && AttributeUtil.lookup(attributeProvider, Keys.EVENT_IGNORE_INVALID_POSITIONS)) {
+            return;
+        }
+
         if (config.getBoolean(Keys.REPORT_TRIP_NEW_LOGIC)) {
             double minDistance = AttributeUtil.lookup(attributeProvider, Keys.REPORT_TRIP_MIN_DISTANCE);
             long minDuration = AttributeUtil.lookup(attributeProvider, Keys.REPORT_TRIP_MIN_DURATION) * 1000;
@@ -76,7 +89,11 @@ public class MotionEventHandler extends BasePositionEventHandler {
             Device device, Position position, double minDistance, long minDuration, long stopGap, Callback callback) {
         NewMotionState state = new NewMotionState();
         state.setMotionStreak(device.getMotionStreak());
-        state.setPositions(cacheManager.getPositions(device.getId()));
+        // Same reason as above, for the history the processor walks: one cached
+        // position without a fix among valid ones is a false 5.000 km leg.
+        state.setPositions(cacheManager.getPositions(device.getId()).stream()
+                .filter(Position::getValid)
+                .collect(Collectors.toCollection(ArrayDeque::new)));
         if (device.hasAttribute("motionTime")) {
             // TODO temporary migration path
             state.setEventPosition(
