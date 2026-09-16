@@ -372,6 +372,16 @@ public final class Keys {
             1800);
 
     /**
+     * Maximum number of connections accepted from one address per minute. Zero
+     * disables the limit. A tracker opens a connection and keeps it; an address
+     * opening dozens a minute is either broken or scanning.
+     */
+    public static final ConfigKey<Integer> SERVER_CONNECTION_LIMIT = new IntegerConfigKey(
+            "server.connectionLimit",
+            List.of(KeyType.CONFIG),
+            0);
+
+    /**
      * Send device responses immediately before writing it in the database.
      */
     public static final ConfigKey<Boolean> SERVER_DELAY_ACKNOWLEDGEMENT = new BooleanConfigKey(
