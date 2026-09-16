@@ -26,6 +26,7 @@ import io.netty.handler.timeout.IdleStateHandler;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.handler.network.AcknowledgementHandler;
+import org.traccar.handler.network.ConnectionLimitHandler;
 import org.traccar.handler.network.MainEventHandler;
 import org.traccar.handler.network.NetworkForwarderHandler;
 import org.traccar.handler.network.NetworkMessageHandler;
@@ -43,6 +44,20 @@ public abstract class BasePipelineFactory extends ChannelInitializer<Channel> {
     private final String protocol;
     private final int timeout;
 
+    /*
+     * ONE PER CONNECTOR, NOT ONE PER CONNECTION, and that is the difference
+     * between the limit working and doing nothing at all.
+     *
+     * initChannel runs once per connection. Building the handler there gave
+     * every connection its own counter, which saw a one and let it through:
+     * thirty connections in a row with the limit at ten produced not a single
+     * warning. That is what Sharable is for - one instance serving every
+     * channel, which is the only way they can be counted together.
+     *
+     * The limit is per connector, that is per port. A scan goes to a port.
+     */
+    private final ConnectionLimitHandler connectionLimitHandler;
+
     public BasePipelineFactory(TrackerConnector connector, Config config, String protocol) {
         this.injector = Main.getInjector();
         this.connector = connector;
@@ -53,6 +68,12 @@ public abstract class BasePipelineFactory extends ChannelInitializer<Channel> {
             this.timeout = config.getInteger(Keys.SERVER_TIMEOUT);
         } else {
             this.timeout = timeout;
+        }
+        int connectionLimit = config.getInteger(Keys.SERVER_CONNECTION_LIMIT);
+        if (connectionLimit > 0 && !connector.isDatagram()) {
+            this.connectionLimitHandler = new ConnectionLimitHandler(connectionLimit);
+        } else {
+            this.connectionLimitHandler = null;
         }
     }
 
@@ -84,6 +105,19 @@ public abstract class BasePipelineFactory extends ChannelInitializer<Channel> {
     @Override
     protected void initChannel(Channel channel) {
         final ChannelPipeline pipeline = channel.pipeline();
+
+        /*
+         * First, and before anything else is set up. The point of the limit is
+         * that a rejected connection costs nothing, and that only holds if it
+         * is rejected before the transport handlers, the logging and the
+         * protocol decoder have been attached to it.
+         *
+         * Datagram connectors are excluded because they have one channel for
+         * every client: counting connections there would count once, ever.
+         */
+        if (connectionLimitHandler != null) {
+            pipeline.addLast(connectionLimitHandler);
+        }
 
         addTransportHandlers(pipeline::addLast);
 
