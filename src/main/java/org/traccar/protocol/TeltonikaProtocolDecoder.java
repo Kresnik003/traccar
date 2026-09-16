@@ -45,6 +45,9 @@ import java.util.function.Predicate;
 
 public class TeltonikaProtocolDecoder extends BaseProtocolDecoder {
 
+    // Una muestra de la traza del impacto: X, Y y Z de 16 bits con signo.
+    private static final int TRACE_SAMPLE_SIZE = 6;
+
     private static final int IMAGE_PACKET_MAX = 2048;
 
     private static final Map<Integer, Map<Predicate<String>, BiConsumer<Position, ByteBuf>>> PARAMETERS =
@@ -606,6 +609,20 @@ public class TeltonikaProtocolDecoder extends BaseProtocolDecoder {
                     if (id == 1429) {
                         position.addAlarm(Position.ALARM_ACCIDENT);
                     }
+                } else if (id == 257 && length >= TRACE_SAMPLE_SIZE && length % TRACE_SAMPLE_SIZE == 0) {
+                    ByteBuf trace = buf.readSlice(length);
+                    int samples = length / TRACE_SAMPLE_SIZE;
+                    int peak = 0;
+                    for (int s = 0; s < samples; s++) {
+                        int base = s * TRACE_SAMPLE_SIZE;
+                        int x = trace.getShort(base);
+                        int y = trace.getShort(base + 2);
+                        int z = trace.getShort(base + 4);
+                        peak = Math.max(peak, (int) Math.round(Math.sqrt(x * x + y * y + z * z)));
+                    }
+                    position.set("crashTracePeak", peak);
+                    position.set("crashTraceSamples", samples);
+                    position.set(Position.PREFIX_IO + id, ByteBufUtil.hexDump(trace));
                 } else {
                     position.set(Position.PREFIX_IO + id, ByteBufUtil.hexDump(buf.readSlice(length)));
                 }
