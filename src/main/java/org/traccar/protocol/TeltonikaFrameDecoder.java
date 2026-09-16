@@ -25,6 +25,9 @@ public class TeltonikaFrameDecoder extends BaseFrameDecoder {
 
     private static final int MESSAGE_MINIMUM_LENGTH = 12;
 
+    // Los quince digitos de un IMEI, que es como empieza el saludo del equipo.
+    private static final int IMEI_LENGTH = 15;
+
     public TeltonikaFrameDecoder() {
         super(BaseProtocol.MAX_FRAME_LENGTH_LARGE);
     }
@@ -39,6 +42,21 @@ public class TeltonikaFrameDecoder extends BaseFrameDecoder {
 
         if (buf.readableBytes() < MESSAGE_MINIMUM_LENGTH) {
             return null;
+        }
+
+        // RECHAZO TEMPRANO DE LO QUE NO PUEDE SER UNA TRAMA.
+        //
+        // Este puerto esta abierto a internet y no pide credencial. En el log de
+        // un servidor de verdad hay 239 conexiones de 12 IPs, y la mayoria es
+        // barrido: "GET / HTTP/1.1", "SSH-2.0-Go", lineas sueltas. Todo eso
+        // entraba, reservaba sesion y dejaba su rastro en el log.
+        //
+        // Una trama de Teltonika empieza SIEMPRE por uno de dos sitios: la
+        // longitud del IMEI (0x000F, quince digitos) o los cuatro ceros del
+        // preambulo AVL. Cualquier otra cosa se cierra aqui.
+        int first = buf.getUnsignedShort(buf.readerIndex());
+        if (first != IMEI_LENGTH && first != 0) {
+            throw new UnsupportedOperationException("not a teltonika frame");
         }
 
         int length = buf.getUnsignedShort(buf.readerIndex());
