@@ -24,6 +24,7 @@ import org.traccar.helper.model.PositionUtil;
 import org.traccar.model.Device;
 import org.traccar.model.Group;
 import org.traccar.model.Position;
+import org.traccar.reports.common.ReportBudget;
 import org.traccar.reports.common.ReportUtils;
 import org.traccar.reports.model.DeviceReportSection;
 import org.traccar.storage.Storage;
@@ -64,6 +65,9 @@ public class RouteReportProvider {
 
     public Stream<Position> getObjects(long userId, Collection<Long> deviceIds, Collection<Long> groupIds,
             Date from, Date to) throws StorageException {
+        // Every other report provider checks this; the route report, which reads by far the
+        // most data, was the only one that did not.
+        reportUtils.checkPeriodLimit(from, to);
         int limit = config.getInteger(Keys.REPORT_MAX_POSITIONS);
 
         return DeviceUtil.getAccessibleDevices(storage, userId, deviceIds, groupIds).stream()
@@ -84,15 +88,22 @@ public class RouteReportProvider {
     public void getExcel(OutputStream outputStream,
             long userId, Collection<Long> deviceIds, Collection<Long> groupIds,
             Date from, Date to) throws StorageException, IOException {
+        reportUtils.checkPeriodLimit(from, to);
         int limit = config.getInteger(Keys.REPORT_MAX_POSITIONS);
+        // Positions of every device are held at once below, so the whole request needs a
+        // ceiling, not just each device. Without it the heap runs out and the process exits.
+        var budget = new ReportBudget(config.getInteger(Keys.REPORT_MAX_TOTAL_POSITIONS));
 
         ArrayList<DeviceReportSection> devicesRoutes = new ArrayList<>();
         ArrayList<String> sheetNames = new ArrayList<>();
         for (Device device: DeviceUtil.getAccessibleDevices(storage, userId, deviceIds, groupIds)) {
             List<Position> positions;
             try (var stream = PositionUtil.getPositionsStream(storage, device.getId(), from, to, limit)) {
-                positions = stream.toList();
+                // Read one past what is left, so going over the ceiling is detected without
+                // ever holding more than the ceiling plus one position.
+                positions = stream.limit(budget.remaining()).toList();
             }
+            budget.spend(positions.size());
             DeviceReportSection deviceRoutes = new DeviceReportSection();
             deviceRoutes.setDeviceName(device.getName());
             sheetNames.add(WorkbookUtil.createSafeSheetName(getUniqueSheetName(deviceRoutes.getDeviceName())));
