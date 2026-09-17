@@ -301,6 +301,15 @@ public final class Keys {
             List.of(KeyType.CONFIG, KeyType.DEVICE));
 
     /**
+     * Keep the raw AVL record of each position as the tramaCruda attribute, in hex. A device or
+     * config attribute: on per device, so only the trackers being studied pay the extra bytes.
+     * It feeds the frame bench (improvement 8) with exactly what the device sent, byte for byte.
+     */
+    public static final ConfigKey<Boolean> DECODER_STORE_RAW_FRAME = new BooleanConfigKey(
+            "decoder.storeRawFrame",
+            List.of(KeyType.CONFIG, KeyType.DEVICE));
+
+    /**
      * ORBCOMM API access id.
      */
     public static final ConfigKey<String> ORBCOMM_ACCESS_ID = new StringConfigKey(

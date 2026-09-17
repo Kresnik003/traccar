@@ -25,6 +25,7 @@ import org.traccar.session.DeviceSession;
 import org.traccar.NetworkMessage;
 import org.traccar.Protocol;
 import org.traccar.config.Keys;
+import org.traccar.helper.model.AttributeUtil;
 import org.traccar.helper.BitUtil;
 import org.traccar.helper.Checksum;
 import org.traccar.helper.UnitsConverter;
@@ -657,6 +658,9 @@ public class TeltonikaProtocolDecoder extends BaseProtocolDecoder {
             return null;
         }
 
+        boolean storeRawFrame = Boolean.TRUE.equals(AttributeUtil.lookup(
+                getCacheManager(), Keys.DECODER_STORE_RAW_FRAME, deviceSession.getDeviceId()));
+
         for (int i = 0; i < count; i++) {
             Position position = new Position(getProtocolName());
 
@@ -681,7 +685,14 @@ public class TeltonikaProtocolDecoder extends BaseProtocolDecoder {
             } else if (codec == CODEC_12) {
                 decodeSerial(channel, remoteAddress, deviceSession, position, buf);
             } else {
+                // Marked before decoding so the slice is exactly this record's
+                // bytes; the decoder advances the reader through them.
+                int start = buf.readerIndex();
                 decodeLocation(position, buf, codec, getDeviceModel(deviceSession));
+                if (storeRawFrame) {
+                    position.set("tramaCruda",
+                            ByteBufUtil.hexDump(buf.slice(start, buf.readerIndex() - start)));
+                }
             }
 
             if (!position.getOutdated() || !position.getAttributes().isEmpty()) {
