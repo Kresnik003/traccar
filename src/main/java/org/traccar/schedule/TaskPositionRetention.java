@@ -191,6 +191,7 @@ public class TaskPositionRetention extends SingleScheduleTask {
     @Override
     public void schedule(ScheduledExecutorService executor) {
         if (config.getInteger(Keys.DATABASE_POSITION_RETENTION_DAYS) > 0
+                || config.getInteger(Keys.DATABASE_ACCESS_LOG_RETENTION_DAYS) > 0
                 || config.getBoolean(Keys.DATABASE_DELETE_ORPHAN_HISTORY)) {
             executor.scheduleAtFixedRate(
                     this, INITIAL_DELAY_MINUTES, TimeUnit.DAYS.toMinutes(1), TimeUnit.MINUTES);
@@ -209,6 +210,13 @@ public class TaskPositionRetention extends SingleScheduleTask {
     public void run() {
         if (config.getBoolean(Keys.DATABASE_DELETE_ORPHAN_HISTORY)) {
             deleteOrphans();
+        }
+        int accessDays = config.getInteger(Keys.DATABASE_ACCESS_LOG_RETENTION_DAYS);
+        if (accessDays > 0) {
+            Timestamp accessCutoff = new Timestamp(System.currentTimeMillis() - TimeUnit.DAYS.toMillis(accessDays));
+            long accesses = purge(() -> execute(
+                    "DELETE FROM nx_accesos WHERE momento < ? LIMIT " + BATCH, accessCutoff), MAX_BATCHES);
+            LOGGER.info("Access log retention of {} days: removed {} entries", accessDays, accesses);
         }
         int days = config.getInteger(Keys.DATABASE_POSITION_RETENTION_DAYS);
         if (days <= 0) {

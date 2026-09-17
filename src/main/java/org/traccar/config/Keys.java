@@ -1000,6 +1000,15 @@ public final class Keys {
             List.of(KeyType.CONFIG),
             0);
 
+    /**
+     * Days to keep the log of who read location history (nx_accesos). Zero keeps it forever. The log
+     * names who looked at whose bike, so it is personal data as well and needs a limit of its own.
+     */
+    public static final ConfigKey<Integer> DATABASE_ACCESS_LOG_RETENTION_DAYS = new IntegerConfigKey(
+            "database.accessLogRetentionDays",
+            List.of(KeyType.CONFIG),
+            0);
+
     public static final ConfigKey<String> WEB_ADDRESS = new StringConfigKey(
             "web.address",
             List.of(KeyType.CONFIG));
