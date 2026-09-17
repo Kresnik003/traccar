@@ -26,22 +26,26 @@ import org.traccar.config.Keys;
 import org.traccar.helper.HealthEvaluator;
 import org.traccar.helper.HealthEvaluator.Check;
 import org.traccar.model.Device;
-import org.traccar.model.Position;
 import org.traccar.model.Server;
 import org.traccar.model.User;
 import org.traccar.session.ConnectionManager;
 import org.traccar.session.FleetMetrics;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
-import org.traccar.storage.query.Order;
 import org.traccar.storage.query.Request;
 
+import javax.sql.DataSource;
 import java.io.File;
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +74,44 @@ public class SaludResource extends BaseResource {
 
     @Inject
     private ConnectionManager connectionManager;
+
+    @Inject
+    private DataSource dataSource;
+
+    /**
+     * Oldest position per device. MySQL answers this from the (deviceid,
+     * fixtime) index reading one entry per device - checked with EXPLAIN,
+     * "Using index for group-by" - so its cost follows the number of devices,
+     * not the size of the history.
+     */
+    private List<HealthEvaluator.DeviceOldest> oldestPerDevice() throws SQLException {
+        List<HealthEvaluator.DeviceOldest> result = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT deviceid, MIN(fixtime) FROM tc_positions GROUP BY deviceid");
+             ResultSet rows = statement.executeQuery()) {
+            while (rows.next()) {
+                if (rows.getTimestamp(2) != null) {
+                    result.add(new HealthEvaluator.DeviceOldest(rows.getLong(1), rows.getTimestamp(2).getTime()));
+                }
+            }
+        }
+        return result;
+    }
+
+    private long oldestOtherThan(long deviceId, long positionId) {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT MIN(fixtime) FROM tc_positions WHERE deviceid = ? AND id <> ?")) {
+            statement.setLong(1, deviceId);
+            statement.setLong(2, positionId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() && rows.getTimestamp(1) != null ? rows.getTimestamp(1).getTime() : -1;
+            }
+        } catch (SQLException e) {
+            return -1;
+        }
+    }
 
     private static String read(String file) {
         try {
@@ -127,7 +169,9 @@ public class SaludResource extends BaseResource {
         int silentHours = config.getInteger(Keys.WEB_HEALTH_SILENT_HOURS);
         long limit = System.currentTimeMillis() - silentHours * 3600000L;
         List<String> silent = new ArrayList<>();
+        Map<Long, Long> lastPositions = new HashMap<>();
         for (Device device : storage.getObjects(Device.class, new Request(new Columns.All()))) {
+            lastPositions.put(device.getId(), device.getPositionId());
             // Disabled devices, and those marked to be ignored (test units that
             // are switched off on purpose), are not a fault.
             if (!device.getDisabled() && !device.getBoolean("ignorarSalud")
@@ -143,11 +187,22 @@ public class SaludResource extends BaseResource {
          * table; ordering by id reads one row. Ids grow with arrival, which is
          * close enough to age for a check that looks at days.
          */
-        Position oldest = storage.getObject(Position.class, new Request(
-                new Columns.Include("fixTime"), new Order("id", false, 1)));
-        long oldestDays = oldest != null && oldest.getFixTime() != null
-                ? (new Date().getTime() - oldest.getFixTime().getTime()) / 86400000L : -1;
-        checks.add(HealthEvaluator.history(oldestDays, config.getInteger(Keys.WEB_HEALTH_RETENTION_DAYS)));
+        /*
+         * A device's last known position is kept on purpose however old it is,
+         * so it is not what the pruning check should look at: a bike stored for
+         * a year would otherwise report the pruning as broken.
+         */
+        long oldestDays;
+        try {
+            long oldest = HealthEvaluator.oldestCounting(oldestPerDevice(),
+                    deviceId -> oldestOtherThan(deviceId, lastPositions.getOrDefault(deviceId, 0L)));
+            oldestDays = oldest >= 0 ? (System.currentTimeMillis() - oldest) / 86400000L : -1;
+        } catch (SQLException e) {
+            oldestDays = -1;
+        }
+        int retention = config.getInteger(Keys.DATABASE_POSITION_RETENTION_DAYS);
+        checks.add(HealthEvaluator.history(oldestDays,
+                retention > 0 ? retention : config.getInteger(Keys.WEB_HEALTH_RETENTION_DAYS)));
 
         List<String> withoutSecondFactor = new ArrayList<>();
         for (User user : storage.getObjects(User.class, new Request(new Columns.All()))) {

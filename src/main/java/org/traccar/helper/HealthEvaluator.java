@@ -15,7 +15,9 @@
  */
 package org.traccar.helper;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.function.LongUnaryOperator;
 
 /**
  * Turns raw readings into health results, with no I/O of its own.
@@ -159,6 +161,45 @@ public final class HealthEvaluator {
                     connected + " equipos conectados y ninguna posición guardada");
         }
         return new Check("guardado", OK, since < 60 ? "hace un momento" : (since / 60) + " min", null);
+    }
+
+    public record DeviceOldest(long deviceId, long oldestMillis) {
+    }
+
+    /**
+     * The oldest position that counts for the pruning check, in milliseconds.
+     *
+     * A device's last known position is kept on purpose however old it is, so
+     * it does not count. The cheap reading is the oldest position of each
+     * device; only when that one might be the kept last position is the device
+     * asked again for its oldest other position. Devices are visited oldest
+     * first and the walk stops as soon as no device can beat the answer, so in
+     * practice one or two extra lookups are made.
+     *
+     * An earlier version took the first rows by id, assuming ids grow with age.
+     * They do not: a tracker that regains coverage uploads its stored records
+     * with old times and new ids. The retention check on the bench caught it,
+     * reporting a clean history with a 400-day-old position in the table.
+     *
+     * @param nonLastOldest oldest position of a device other than its last
+     *                      known one, or -1 if it has none
+     * @return oldest counting position, or -1 if there is none
+     */
+    public static long oldestCounting(List<DeviceOldest> perDevice, LongUnaryOperator nonLastOldest) {
+        long best = -1;
+        List<DeviceOldest> sorted = perDevice.stream()
+                .sorted(Comparator.comparingLong(DeviceOldest::oldestMillis))
+                .toList();
+        for (DeviceOldest device : sorted) {
+            if (best >= 0 && device.oldestMillis() >= best) {
+                break;
+            }
+            long candidate = nonLastOldest.applyAsLong(device.deviceId());
+            if (candidate >= 0 && (best < 0 || candidate < best)) {
+                best = candidate;
+            }
+        }
+        return best;
     }
 
     public static Check history(long oldestDays, int retentionDays) {

@@ -2,6 +2,7 @@ package org.traccar.helper;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -95,6 +96,49 @@ public class HealthEvaluatorTest {
         assertEquals(HealthEvaluator.WARNING, check.estado());
         assertTrue(check.detalle().contains("RSV4") && check.detalle().contains("R1"));
         assertEquals(HealthEvaluator.OK, HealthEvaluator.silentDevices(List.of(), 26).estado());
+    }
+
+    private static final long DAY = 86400000L;
+
+    /** A bike left in a garage for a year: its only old position is its last known one. */
+    @Test
+    public void testOldestIgnoresLastKnownPosition() {
+        var perDevice = List.of(
+                new HealthEvaluator.DeviceOldest(1, 400 * DAY),
+                new HealthEvaluator.DeviceOldest(2, 900 * DAY));
+        // Device 1's oldest is its last known position; its next one is recent.
+        long oldest = HealthEvaluator.oldestCounting(perDevice, id -> id == 1 ? 950 * DAY : 900 * DAY);
+        assertEquals(900 * DAY, oldest);
+    }
+
+    @Test
+    public void testOldestFindsTheRealOne() {
+        var perDevice = List.of(
+                new HealthEvaluator.DeviceOldest(1, 100 * DAY),
+                new HealthEvaluator.DeviceOldest(2, 500 * DAY));
+        assertEquals(100 * DAY, HealthEvaluator.oldestCounting(perDevice, id -> id == 1 ? 100 * DAY : 500 * DAY));
+    }
+
+    /** Stops as soon as no remaining device can be older than what was found. */
+    @Test
+    public void testOldestStopsEarly() {
+        var asked = new ArrayList<Long>();
+        var perDevice = List.of(
+                new HealthEvaluator.DeviceOldest(1, 100 * DAY),
+                new HealthEvaluator.DeviceOldest(2, 200 * DAY),
+                new HealthEvaluator.DeviceOldest(3, 300 * DAY));
+        HealthEvaluator.oldestCounting(perDevice, id -> {
+            asked.add(id);
+            return 100 * DAY;
+        });
+        assertEquals(List.of(1L), asked);
+    }
+
+    @Test
+    public void testOldestNothingCounts() {
+        assertEquals(-1, HealthEvaluator.oldestCounting(List.of(), id -> -1));
+        assertEquals(-1, HealthEvaluator.oldestCounting(
+                List.of(new HealthEvaluator.DeviceOldest(1, 5 * DAY)), id -> -1));
     }
 
     @Test

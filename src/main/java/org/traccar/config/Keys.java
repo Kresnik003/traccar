@@ -973,6 +973,15 @@ public final class Keys {
             List.of(KeyType.CONFIG),
             0);
 
+    /**
+     * Days of positions and events to keep. Older ones are deleted daily, except a device's last
+     * known position. Zero keeps everything.
+     */
+    public static final ConfigKey<Integer> DATABASE_POSITION_RETENTION_DAYS = new IntegerConfigKey(
+            "database.positionRetentionDays",
+            List.of(KeyType.CONFIG),
+            0);
+
     public static final ConfigKey<String> WEB_ADDRESS = new StringConfigKey(
             "web.address",
             List.of(KeyType.CONFIG));
