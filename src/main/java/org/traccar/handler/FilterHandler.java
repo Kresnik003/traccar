@@ -21,6 +21,7 @@ import org.traccar.config.Keys;
 import org.traccar.database.StatisticsManager;
 import org.traccar.helper.UnitsConverter;
 import org.traccar.helper.model.AttributeUtil;
+import org.traccar.helper.model.GeofenceUtil;
 import org.traccar.model.Calendar;
 import org.traccar.model.Device;
 import org.traccar.model.Position;
@@ -166,6 +167,30 @@ public class FilterHandler extends BasePositionHandler {
         return false;
     }
 
+    /**
+     * Whether this position is inside a geofence where the club wants every
+     * point kept - a circuit. There the excess-data filters are turned off, so
+     * a fast lap is not thinned out to a few samples.
+     */
+    private boolean insideFullRateGeofence(Position position) {
+        String ids = AttributeUtil.lookup(
+                cacheManager, Keys.FILTER_SKIP_INSIDE_GEOFENCES, position.getDeviceId());
+        if (ids == null || ids.isBlank()) {
+            return false;
+        }
+        var current = GeofenceUtil.getCurrentGeofences(cacheManager, position);
+        for (String id : ids.split("[ ,]+")) {
+            try {
+                if (current.contains(Long.parseLong(id.trim()))) {
+                    return true;
+                }
+            } catch (NumberFormatException e) {
+                // not an id, skip
+            }
+        }
+        return false;
+    }
+
     protected boolean filter(Position position) {
 
         List<String> filterTypes = new LinkedList<>();
@@ -196,19 +221,22 @@ public class FilterHandler extends BasePositionHandler {
         // filter out excessive data
         long deviceId = position.getDeviceId();
         Position last = cacheManager.getPosition(deviceId);
-        if (filterDuplicate(position, last) && !skipLimit(position, last) && !skipAttributes(position, last)) {
+        // Inside a circuit, keep every point: the excess-data filters are off.
+        boolean fullRate = insideFullRateGeofence(position);
+        boolean skip = fullRate || skipLimit(position, last) || skipAttributes(position, last);
+        if (filterDuplicate(position, last) && !skip) {
             filterTypes.add("Duplicate");
         }
-        if (filterStatic(position) && !skipLimit(position, last) && !skipAttributes(position, last)) {
+        if (filterStatic(position) && !skip) {
             filterTypes.add("Static");
         }
-        if (filterDistance(position, last) && !skipLimit(position, last) && !skipAttributes(position, last)) {
+        if (filterDistance(position, last) && !skip) {
             filterTypes.add("Distance");
         }
         if (filterMaxSpeed(position, last)) {
             filterTypes.add("MaxSpeed");
         }
-        if (filterMinPeriod(position, last)) {
+        if (!fullRate && filterMinPeriod(position, last)) {
             filterTypes.add("MinPeriod");
         }
         if (filterDailyLimit(position, last)) {
