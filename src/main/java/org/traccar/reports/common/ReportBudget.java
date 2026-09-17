@@ -23,10 +23,16 @@ package org.traccar.reports.common;
  * Traccar is started, that does not fail the report: it terminates the process and takes
  * live tracking down with it until the service restarts.
  *
- * <p>Measured on a bench server with the default ergonomic heap of 891 MB and positions
- * carrying 424 bytes of attributes: 50000 positions produce the spreadsheet in 26 s, while
- * 100000 killed the process after 168 s. Hence a default ceiling of 50000, configurable for
- * servers with a larger heap.
+ * <p>Measured on two heaps, with positions carrying 424 bytes of attributes:
+ *
+ * <pre>
+ *   891 MB:  50000 -&gt; spreadsheet in 26 s     100000 -&gt; process killed after 168 s
+ *   240 MB:  12000 -&gt; spreadsheet in 12 s      16000 -&gt; process killed
+ * </pre>
+ *
+ * <p>Which is why there is no fixed default: 50000 is fine on the first server and fatal on
+ * the second, and 240 MB is what a small cloud instance gives itself. The ceiling is derived
+ * from the heap the JVM actually got instead.
  *
  * <p>A report that would cross the ceiling now stops and explains itself instead of dying.
  */
@@ -35,8 +41,43 @@ public class ReportBudget {
     private final int ceiling;
     private int used;
 
+    /**
+     * Bytes of heap to reserve per position held while building a spreadsheet.
+     *
+     * <p>Not a guess. Taking the point where each server died: 891 MB died at 100000 positions
+     * (8.9 kB each) and 240 MB died at 16000 (15.0 kB each). The larger of the two, rounded up
+     * and doubled, is what is reserved here, so the derived ceiling lands below what was
+     * measured to survive on both.
+     */
+    private static final long BYTES_POR_POSICION = 24576;
+
+    /** Below this a report would be useless, so a tiny heap gets this instead of nothing. */
+    private static final int TECHO_MINIMO = 1000;
+
     public ReportBudget(int ceiling) {
         this.ceiling = ceiling;
+    }
+
+    /**
+     * The ceiling to use when the configuration does not set one: derived from the heap this
+     * JVM actually got.
+     *
+     * <p>A fixed default cannot be right for both: 50000 positions build a report on a 891 MB
+     * heap and kill a 240 MB one, and Traccar runs with {@code -XX:+ExitOnOutOfMemoryError}, so
+     * getting it wrong does not fail the report, it takes the server down.
+     */
+    public static int techoPorDefecto() {
+        long porMemoria = Runtime.getRuntime().maxMemory() / BYTES_POR_POSICION;
+        return (int) Math.max(TECHO_MINIMO, Math.min(Integer.MAX_VALUE, porMemoria));
+    }
+
+    /**
+     * A budget from the configured ceiling, or from the heap when nothing is configured.
+     *
+     * @param configurado the value of report.maxTotalPositions, 0 when unset
+     */
+    public static ReportBudget desdeConfiguracion(int configurado) {
+        return new ReportBudget(configurado > 0 ? configurado : techoPorDefecto());
     }
 
     public int getCeiling() {

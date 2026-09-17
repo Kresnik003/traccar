@@ -1742,13 +1742,22 @@ public final class Keys {
      * its devices. REPORT_MAX_POSITIONS caps each device on its own, which multiplies by the
      * number of devices; this caps the whole request. Over the ceiling the report is refused
      * with an explanation, instead of exhausting the heap and terminating the process.
-     * Measured with the default 891 MB heap: 50000 positions build the file in 26 s, 100000
-     * killed the server. Raise it along with the heap.
+     *
+     * <p>Left without a fixed default on purpose: what a server survives depends on its heap,
+     * and a number that is safe on one is fatal on another. Measured on two:
+     *
+     * <pre>
+     *   891 MB heap:  50000 built the file in 26 s, 100000 killed the process
+     *   240 MB heap:  12000 built it in 12 s,        16000 killed the process
+     * </pre>
+     *
+     * So when this is unset the ceiling is derived from the heap the JVM actually got - see
+     * ReportBudget.techoPorDefecto - which is the only way a default can be right on both.
+     * Set it explicitly only to override that.
      */
     public static final ConfigKey<Integer> REPORT_MAX_TOTAL_POSITIONS = new IntegerConfigKey(
             "report.maxTotalPositions",
-            List.of(KeyType.CONFIG),
-            50000);
+            List.of(KeyType.CONFIG));
 
     public static final ConfigKey<Integer> REPORT_MAX_POSITIONS = new IntegerConfigKey(
             "report.maxPositions",
