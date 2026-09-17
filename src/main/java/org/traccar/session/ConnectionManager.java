@@ -118,6 +118,22 @@ public class ConnectionManager implements BroadcastInterface {
         return sessionsByDeviceId.get(deviceId);
     }
 
+    /**
+     * The position lookup only happens when it can change the answer: lock on and no
+     * attribute. Connection-per-message protocols pay one indexed read per message then.
+     */
+    private boolean protocolAllowed(Protocol protocol, Device device) throws StorageException {
+        String attribute = device.getString(ProtocolLock.ATTRIBUTE);
+        boolean lock = config.getBoolean(Keys.SERVER_PROTOCOL_LOCK);
+        String lastProtocol = null;
+        if (lock && (attribute == null || attribute.isBlank()) && device.getPositionId() > 0) {
+            Position last = storage.getObject(Position.class, new Request(
+                    new Columns.Include("protocol"), new Condition.Equals("id", device.getPositionId())));
+            lastProtocol = last != null ? last.getProtocol() : null;
+        }
+        return ProtocolLock.allowed(protocol.getName(), attribute, lastProtocol, lock);
+    }
+
     public DeviceSession getDeviceSession(
             Protocol protocol, Channel channel, SocketAddress remoteAddress,
             String... uniqueIds) throws Exception {
@@ -154,6 +170,13 @@ public class ConnectionManager implements BroadcastInterface {
             if (firstUniqueId.matches(config.getString(Keys.DATABASE_REGISTER_UNKNOWN_REGEX))) {
                 device = addUnknownDevice(firstUniqueId);
             }
+        }
+
+        if (device != null && !protocolAllowed(protocol, device)) {
+            fleetMetrics.protocolRejected(protocol.getName());
+            LOGGER.warn("Protocol not allowed for device - " + device.getUniqueId() + " ("
+                    + protocol.getName() + ", " + ((InetSocketAddress) remoteAddress).getHostString() + ")");
+            return null;
         }
 
         if (device != null) {
