@@ -98,6 +98,15 @@ public class HealthEvaluatorTest {
     }
 
     @Test
+    public void testSecondFactor() {
+        assertEquals(HealthEvaluator.WARNING, HealthEvaluator.secondFactor(false, List.of()).estado());
+        var check = HealthEvaluator.secondFactor(true, List.of("Admin del club"));
+        assertEquals(HealthEvaluator.WARNING, check.estado());
+        assertTrue(check.detalle().contains("Admin del club"));
+        assertEquals(HealthEvaluator.OK, HealthEvaluator.secondFactor(true, List.of()).estado());
+    }
+
+    @Test
     public void testWorstWins() {
         assertEquals(HealthEvaluator.FAILURE, HealthEvaluator.worst(List.of(
                 HealthEvaluator.memory(10), HealthEvaluator.disk(100, 10), HealthEvaluator.load(1, 8))));
