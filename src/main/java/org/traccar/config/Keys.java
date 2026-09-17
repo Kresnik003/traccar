@@ -957,6 +957,22 @@ public final class Keys {
             "web.metricsToken",
             List.of(KeyType.CONFIG));
 
+    /**
+     * Hours without reporting after which /api/salud names a device.
+     */
+    public static final ConfigKey<Integer> WEB_HEALTH_SILENT_HOURS = new IntegerConfigKey(
+            "web.healthSilentHours",
+            List.of(KeyType.CONFIG),
+            26);
+
+    /**
+     * Days of position history the pruning keeps. Zero skips the check.
+     */
+    public static final ConfigKey<Integer> WEB_HEALTH_RETENTION_DAYS = new IntegerConfigKey(
+            "web.healthRetentionDays",
+            List.of(KeyType.CONFIG),
+            0);
+
     public static final ConfigKey<String> WEB_ADDRESS = new StringConfigKey(
             "web.address",
             List.of(KeyType.CONFIG));
