@@ -142,6 +142,12 @@ public class HealthEvaluatorTest {
     }
 
     @Test
+    public void testValuesUseDecimalComma() {
+        assertEquals("0,18", HealthEvaluator.load(1.44, 8).valor());
+        assertEquals("65 %", HealthEvaluator.memory(64.9).valor());
+    }
+
+    @Test
     public void testSecondFactor() {
         assertEquals(HealthEvaluator.WARNING, HealthEvaluator.secondFactor(false, List.of()).estado());
         var check = HealthEvaluator.secondFactor(true, List.of("Admin del club"));
