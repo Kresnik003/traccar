@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.traccar.database.PositionBatchWriter;
 import org.traccar.database.StatisticsManager;
 import org.traccar.model.Position;
+import org.traccar.session.FleetMetrics;
 
 public class DatabaseHandler extends BasePositionHandler {
 
@@ -28,6 +29,9 @@ public class DatabaseHandler extends BasePositionHandler {
 
     private final PositionBatchWriter batchWriter;
     private final StatisticsManager statisticsManager;
+
+    @Inject
+    private FleetMetrics fleetMetrics;
 
     @Inject
     public DatabaseHandler(PositionBatchWriter batchWriter, StatisticsManager statisticsManager) {
@@ -41,6 +45,7 @@ public class DatabaseHandler extends BasePositionHandler {
             if (error == null) {
                 position.setId(id);
                 statisticsManager.registerMessageStored(position.getDeviceId(), position.getProtocol());
+                fleetMetrics.positionStored();
             } else {
                 LOGGER.warn("Failed to store position", error);
             }

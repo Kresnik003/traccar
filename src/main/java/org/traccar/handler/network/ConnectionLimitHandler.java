@@ -60,6 +60,7 @@ public class ConnectionLimitHandler extends ChannelInboundHandlerAdapter {
 
     private final int limit;
     private final LongSupplier clock;
+    private final Runnable onRejected;
     private final Map<String, Counter> counters = new ConcurrentHashMap<>();
 
     private static final class Counter {
@@ -69,18 +70,28 @@ public class ConnectionLimitHandler extends ChannelInboundHandlerAdapter {
     }
 
     public ConnectionLimitHandler(int limit) {
-        this(limit, System::currentTimeMillis);
+        this(limit, System::currentTimeMillis, () -> { });
+    }
+
+    public ConnectionLimitHandler(int limit, Runnable onRejected) {
+        this(limit, System::currentTimeMillis, onRejected);
     }
 
     ConnectionLimitHandler(int limit, LongSupplier clock) {
+        this(limit, clock, () -> { });
+    }
+
+    ConnectionLimitHandler(int limit, LongSupplier clock, Runnable onRejected) {
         this.limit = limit;
         this.clock = clock;
+        this.onRejected = onRejected;
     }
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
         SocketAddress remoteAddress = ctx.channel().remoteAddress();
         if (remoteAddress instanceof InetSocketAddress address && exceeded(address.getHostString())) {
+            onRejected.run();
             ctx.close();
         } else {
             super.channelActive(ctx);
