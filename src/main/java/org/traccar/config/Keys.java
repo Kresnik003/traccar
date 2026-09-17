@@ -1913,6 +1913,15 @@ public final class Keys {
      * Filter records by distance. The value is specified in meters. If the new position is closer than this value to
      * the last one, it gets filtered out.
      */
+    /**
+     * Ids of geofences, comma separated, inside which the excess-data filters (distance, static,
+     * duplicate, minimum period) are turned off, so a lap keeps its full resolution. A device or
+     * config attribute: mark the club's circuits as geofences and give their ids here.
+     */
+    public static final ConfigKey<String> FILTER_SKIP_INSIDE_GEOFENCES = new StringConfigKey(
+            "filter.skipInsideGeofences",
+            List.of(KeyType.CONFIG, KeyType.DEVICE));
+
     public static final ConfigKey<Integer> FILTER_DISTANCE = new IntegerConfigKey(
             "filter.distance",
             List.of(KeyType.CONFIG, KeyType.DEVICE));
