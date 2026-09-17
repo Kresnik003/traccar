@@ -27,7 +27,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -192,6 +194,8 @@ public class TaskPositionRetention extends SingleScheduleTask {
     public void schedule(ScheduledExecutorService executor) {
         if (config.getInteger(Keys.DATABASE_POSITION_RETENTION_DAYS) > 0
                 || config.getInteger(Keys.DATABASE_ACCESS_LOG_RETENTION_DAYS) > 0
+                || config.getInteger(Keys.DATABASE_INVALID_POSITION_RETENTION_DAYS) > 0
+                || config.getInteger(Keys.DATABASE_STATUS_EVENT_RETENTION_DAYS) > 0
                 || config.getBoolean(Keys.DATABASE_DELETE_ORPHAN_HISTORY)) {
             executor.scheduleAtFixedRate(
                     this, INITIAL_DELAY_MINUTES, TimeUnit.DAYS.toMinutes(1), TimeUnit.MINUTES);
@@ -218,18 +222,119 @@ public class TaskPositionRetention extends SingleScheduleTask {
                     "DELETE FROM nx_accesos WHERE momento < ? LIMIT " + BATCH, accessCutoff), MAX_BATCHES);
             LOGGER.info("Access log retention of {} days: removed {} entries", accessDays, accesses);
         }
+        deleteInvalidPositions();
+        int statusDays = config.getInteger(Keys.DATABASE_STATUS_EVENT_RETENTION_DAYS);
+        if (statusDays > 0) {
+            Timestamp statusCutoff = cutoff(statusDays);
+            long statusEvents = purge(() -> execute(
+                    "DELETE FROM tc_events WHERE eventtime < ? AND type IN (" + STATUS_EVENTS + ")"
+                            + " LIMIT " + BATCH, statusCutoff), MAX_BATCHES);
+            LOGGER.info("Status event retention of {} days: removed {} events", statusDays, statusEvents);
+        }
         int days = config.getInteger(Keys.DATABASE_POSITION_RETENTION_DAYS);
         if (days <= 0) {
             return;
         }
-        Timestamp cutoff = new Timestamp(System.currentTimeMillis() - TimeUnit.DAYS.toMillis(days));
+        Timestamp cutoff = cutoff(days);
+        int rideDays = config.getInteger(Keys.DATABASE_RIDE_RETENTION_DAYS);
+        boolean keepRides = rideDays > days && ridesAvailable();
         long positions = purge(() -> execute(
                 "DELETE FROM tc_positions WHERE fixtime < ?"
                         + " AND id NOT IN (SELECT positionid FROM tc_devices WHERE positionid IS NOT NULL)"
+                        + (keepRides ? " AND NOT EXISTS (" + IN_RIDE + ")" : "")
                         + " LIMIT " + BATCH, cutoff), MAX_BATCHES);
+        long rides = 0;
+        if (keepRides) {
+            Timestamp rideCutoff = cutoff(rideDays);
+            rides = purge(() -> execute(
+                    "DELETE FROM tc_positions WHERE fixtime < ?"
+                            + " AND id NOT IN (SELECT positionid FROM tc_devices WHERE positionid IS NOT NULL)"
+                            + " AND EXISTS (" + IN_RIDE + ")"
+                            + " LIMIT " + BATCH, rideCutoff), MAX_BATCHES);
+        }
         long events = purge(() -> execute(
                 "DELETE FROM tc_events WHERE eventtime < ? LIMIT " + BATCH, cutoff), MAX_BATCHES);
         LOGGER.info("Retention of {} days: removed {} positions and {} events", days, positions, events);
+        if (keepRides) {
+            LOGGER.info("Ride retention of {} days: removed {} positions", rideDays, rides);
+        }
+    }
+
+    /**
+     * The status events a tracker produces by itself every time the network
+     * drops. On a bike parked in a basement that is dozens a day, and none of
+     * them says anything a month later.
+     */
+    static final String STATUS_EVENTS = "'deviceOnline', 'deviceOffline', 'deviceUnknown', 'deviceInactive'";
+
+    /**
+     * A position taken while its device was in a group ride. A ride without an
+     * end counts for the day it started.
+     */
+    public static final String IN_RIDE = "SELECT 1 FROM nx_quedada_device qd"
+            + " JOIN nx_quedadas q ON q.id = qd.quedadaid"
+            + " WHERE qd.deviceid = tc_positions.deviceid"
+            + " AND tc_positions.fixtime >= q.inicio"
+            + " AND tc_positions.fixtime <= COALESCE(q.fin, q.inicio + INTERVAL 1 DAY)";
+
+    private static Timestamp cutoff(int days) {
+        return new Timestamp(System.currentTimeMillis() - TimeUnit.DAYS.toMillis(days));
+    }
+
+    /**
+     * Without the Nordes schema the ride tables do not exist, and a DELETE that
+     * names them fails on every batch: the positions would then never be
+     * deleted at all. So the tables are looked for first, and without them the
+     * general retention applies to everything.
+     */
+    private boolean ridesAvailable() {
+        try {
+            ids("SELECT 1 FROM nx_quedada_device LIMIT 1");
+            return true;
+        } catch (SQLException e) {
+            LOGGER.warn("database.rideRetentionDays is set but there are no ride tables; ignoring it");
+            return false;
+        }
+    }
+
+    /**
+     * Positions without a fix, one device at a time so each deletion is a range
+     * on the (deviceid, fixtime) index. The last known position is kept even
+     * when it has no fix: it is still what the map shows for that device.
+     */
+    private void deleteInvalidPositions() {
+        int days = config.getInteger(Keys.DATABASE_INVALID_POSITION_RETENTION_DAYS);
+        if (days <= 0) {
+            return;
+        }
+        Timestamp invalidCutoff = cutoff(days);
+        Map<Long, Long> devices = new HashMap<>();
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("SELECT id, positionid FROM tc_devices");
+             ResultSet rows = statement.executeQuery()) {
+            while (rows.next()) {
+                devices.put(rows.getLong(1), rows.getLong(2));
+            }
+        } catch (SQLException e) {
+            LOGGER.warn("Could not read devices for invalid position retention, skipping", e);
+            return;
+        }
+        long removed = 0;
+        for (Map.Entry<Long, Long> device : devices.entrySet()) {
+            removed += purge(() -> {
+                try (Connection connection = dataSource.getConnection();
+                     PreparedStatement statement = connection.prepareStatement(
+                             "DELETE FROM tc_positions WHERE deviceid = ? AND fixtime < ?"
+                                     + " AND (valid = 0 OR (latitude = 0 AND longitude = 0))"
+                                     + " AND id <> ? LIMIT " + BATCH)) {
+                    statement.setLong(1, device.getKey());
+                    statement.setTimestamp(2, invalidCutoff);
+                    statement.setLong(3, device.getValue());
+                    return statement.executeUpdate();
+                }
+            }, MAX_BATCHES);
+        }
+        LOGGER.info("Invalid position retention of {} days: removed {} positions", days, removed);
     }
 
 }
