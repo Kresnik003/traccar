@@ -1037,6 +1037,15 @@ public final class Keys {
             0);
 
     /**
+     * Version of the privacy notice members accept in the web. Change it when the notice changes
+     * - what is stored, for how long, who sees it - and everyone is asked to accept it again.
+     */
+    public static final ConfigKey<String> WEB_PRIVACY_VERSION = new StringConfigKey(
+            "web.privacyVersion",
+            List.of(KeyType.CONFIG),
+            "2026-09");
+
+    /**
      * Days to keep the log of who read location history (nx_accesos). Zero keeps it forever. The log
      * names who looked at whose bike, so it is personal data as well and needs a limit of its own.
      */
