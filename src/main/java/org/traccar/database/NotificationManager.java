@@ -30,6 +30,7 @@ import org.traccar.model.Event;
 import org.traccar.model.Geofence;
 import org.traccar.model.Maintenance;
 import org.traccar.model.Position;
+import org.traccar.notification.NotificationGrouper;
 import org.traccar.notification.NotificatorManager;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
@@ -60,6 +61,9 @@ public class NotificationManager {
     private final boolean geocodeOnRequest;
     private final long timeThreshold;
     private final Set<Long> blockedUsers = new HashSet<>();
+
+    @Inject
+    private NotificationGrouper notificationGrouper;
 
     @Inject
     public NotificationManager(
@@ -142,7 +146,8 @@ public class NotificationManager {
                         return;
                     }
                     for (String notificator : notification.getNotificatorsTypes()) {
-                        notificatorManager.getNotificator(notificator).sendAsync(notification, user, event, position)
+                        notificationGrouper.send(notificator, notificatorManager.getNotificator(notificator),
+                                        notification, user, event, position)
                                 .exceptionally(throwable -> {
                                     LOGGER.warn("Notification failed", throwable);
                                     return null;

@@ -1565,6 +1565,15 @@ public final class Keys {
             15 * 60 * 1000L);
 
     /**
+     * Seconds during which repeats of the same notification, for the same user, channel and device,
+     * are folded into one summary. The first one always goes out at once. Zero disables grouping.
+     */
+    public static final ConfigKey<Long> NOTIFICATOR_GROUP_WINDOW = new LongConfigKey(
+            "notificator.groupWindow",
+            List.of(KeyType.CONFIG),
+            0L);
+
+    /**
      * Traccar notification API key.
      */
     public static final ConfigKey<String> NOTIFICATOR_TRACCAR_KEY = new StringConfigKey(
