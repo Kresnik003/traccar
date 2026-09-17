@@ -83,4 +83,39 @@ public class ReportBudgetTest {
         assertThrows(ReportTooLargeException.class, () -> budget.spend(99));
         assertTrue(budget.remaining() >= 1, "remaining was " + budget.remaining());
     }
+
+    @Test
+    public void theDefaultCeilingComesFromTheHeap() {
+        // A fixed default cannot be right for both servers this was measured on: 50000
+        // positions build the report on a 891 MB heap and kill a 240 MB one. So the default
+        // is derived, and has to land inside what the heap can actually take.
+        int techo = ReportBudget.techoPorDefecto();
+        long heap = Runtime.getRuntime().maxMemory();
+        assertTrue(techo >= 1000, "even a tiny heap should allow some report: " + techo);
+        // Two positions per 48 kB is the reserve; anything far above that is not derived.
+        assertTrue(techo <= heap / 12288, "ceiling too generous for " + heap + " bytes: " + techo);
+        assertTrue(techo >= heap / 49152, "ceiling too mean for " + heap + " bytes: " + techo);
+    }
+
+    @Test
+    public void theMeasuredHeapsWouldGetASurvivableCeiling() {
+        // The two points that were measured, checked against the rule the code applies:
+        //   891 MB survived 50000 and died at 100000
+        //   240 MB survived 12000 and died at 16000
+        // The derived ceiling must sit under the surviving figure on both.
+        assertTrue(891L * 1024 * 1024 / 24576 < 50000, "891 MB would get more than it survives");
+        assertTrue(240L * 1024 * 1024 / 24576 < 12000, "240 MB would get more than it survives");
+    }
+
+    @Test
+    public void aConfiguredCeilingWins() {
+        assertEquals(777, ReportBudget.desdeConfiguracion(777).getCeiling());
+    }
+
+    @Test
+    public void anUnsetCeilingFallsBackToTheHeap() {
+        // 0 is what the config returns when nobody set the key.
+        assertEquals(ReportBudget.techoPorDefecto(), ReportBudget.desdeConfiguracion(0).getCeiling());
+        assertEquals(ReportBudget.techoPorDefecto(), ReportBudget.desdeConfiguracion(-5).getCeiling());
+    }
 }

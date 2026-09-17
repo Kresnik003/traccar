@@ -93,7 +93,7 @@ public class RouteReportProvider {
         int limit = config.getInteger(Keys.REPORT_MAX_POSITIONS);
         // Positions of every device are held at once below, so the whole request needs a
         // ceiling, not just each device. Without it the heap runs out and the process exits.
-        var budget = new ReportBudget(config.getInteger(Keys.REPORT_MAX_TOTAL_POSITIONS));
+        var budget = ReportBudget.desdeConfiguracion(config.getInteger(Keys.REPORT_MAX_TOTAL_POSITIONS));
 
         ArrayList<DeviceReportSection> devicesRoutes = new ArrayList<>();
         ArrayList<String> sheetNames = new ArrayList<>();
