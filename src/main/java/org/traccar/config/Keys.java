@@ -949,6 +949,14 @@ public final class Keys {
      * Optional parameter to specify a network interface for the web interface to bind to. By default, the server will
      * bind to all available interfaces.
      */
+    /**
+     * Password for the user nordes-metrics, over basic authentication, that enables
+     * /api/metrics. Without it the endpoint answers 404.
+     */
+    public static final ConfigKey<String> WEB_METRICS_TOKEN = new StringConfigKey(
+            "web.metricsToken",
+            List.of(KeyType.CONFIG));
+
     public static final ConfigKey<String> WEB_ADDRESS = new StringConfigKey(
             "web.address",
             List.of(KeyType.CONFIG));

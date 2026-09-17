@@ -107,6 +107,13 @@ public class ConnectionManager implements BroadcastInterface {
         unknownByEndpoint.values().removeIf(entry -> entry.timestamp() < cutoff);
     }
 
+    @Inject
+    private FleetMetrics fleetMetrics;
+
+    public int getDeviceSessionCount() {
+        return sessionsByDeviceId.size();
+    }
+
     public DeviceSession getDeviceSession(long deviceId) {
         return sessionsByDeviceId.get(deviceId);
     }
@@ -178,6 +185,7 @@ public class ConnectionManager implements BroadcastInterface {
             return deviceSession;
         } else {
             unknownByEndpoint.put(connectionKey, new UnknownEntry(firstUniqueId, System.currentTimeMillis()));
+            fleetMetrics.unknownDevice(protocol.getName());
             LOGGER.warn("Unknown device - " + String.join(" ", uniqueIds)
                     + " (" + ((InetSocketAddress) remoteAddress).getHostString() + ")");
             return null;

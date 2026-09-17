@@ -33,6 +33,7 @@ import org.traccar.handler.network.NetworkMessageHandler;
 import org.traccar.handler.network.OpenChannelHandler;
 import org.traccar.handler.network.RemoteAddressHandler;
 import org.traccar.handler.network.StandardLoggingHandler;
+import org.traccar.session.FleetMetrics;
 
 import java.util.Map;
 
@@ -71,7 +72,8 @@ public abstract class BasePipelineFactory extends ChannelInitializer<Channel> {
         }
         int connectionLimit = config.getInteger(Keys.SERVER_CONNECTION_LIMIT);
         if (connectionLimit > 0 && !connector.isDatagram()) {
-            this.connectionLimitHandler = new ConnectionLimitHandler(connectionLimit);
+            this.connectionLimitHandler = new ConnectionLimitHandler(
+                    connectionLimit, injector.getInstance(FleetMetrics.class)::connectionRejected);
         } else {
             this.connectionLimitHandler = null;
         }
