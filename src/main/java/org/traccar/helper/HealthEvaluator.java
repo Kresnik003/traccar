@@ -173,6 +173,27 @@ public final class HealthEvaluator {
         return new Check("historico", OK, valor, null);
     }
 
+    /**
+     * Administrators without a second factor.
+     *
+     * The administrator of a club sees every member. The second factor is
+     * already in Traccar; what was missing is being told that it is switched
+     * off, or that an administrator never set it up. Nothing is forced: forcing
+     * it would lock out an administrator who has no key yet, on a server with
+     * nobody else to let them back in.
+     */
+    public static Check secondFactor(boolean enabled, List<String> administratorsWithout) {
+        if (!enabled) {
+            return new Check("segundofactor", WARNING, "apagado",
+                    "El segundo factor está desactivado en el servidor");
+        }
+        if (!administratorsWithout.isEmpty()) {
+            return new Check("segundofactor", WARNING, administratorsWithout.size() + " sin él",
+                    "Administradores sin segundo factor: " + String.join(", ", administratorsWithout));
+        }
+        return new Check("segundofactor", OK, "todos los administradores", null);
+    }
+
     public static Check silentDevices(List<String> names, int hours) {
         if (names.isEmpty()) {
             return new Check("equipos", OK, "todos reportan", null);

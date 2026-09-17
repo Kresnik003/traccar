@@ -28,6 +28,7 @@ import org.traccar.helper.HealthEvaluator.Check;
 import org.traccar.model.Device;
 import org.traccar.model.Position;
 import org.traccar.model.Server;
+import org.traccar.model.User;
 import org.traccar.session.ConnectionManager;
 import org.traccar.session.FleetMetrics;
 import org.traccar.storage.StorageException;
@@ -147,6 +148,16 @@ public class SaludResource extends BaseResource {
         long oldestDays = oldest != null && oldest.getFixTime() != null
                 ? (new Date().getTime() - oldest.getFixTime().getTime()) / 86400000L : -1;
         checks.add(HealthEvaluator.history(oldestDays, config.getInteger(Keys.WEB_HEALTH_RETENTION_DAYS)));
+
+        List<String> withoutSecondFactor = new ArrayList<>();
+        for (User user : storage.getObjects(User.class, new Request(new Columns.All()))) {
+            if (user.getAdministrator() && !user.getDisabled()
+                    && (user.getTotpKey() == null || user.getTotpKey().isEmpty())) {
+                withoutSecondFactor.add(user.getName());
+            }
+        }
+        checks.add(HealthEvaluator.secondFactor(
+                permissionsService.getServer().getBoolean(Keys.WEB_TOTP_ENABLE.getKey()), withoutSecondFactor));
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("estado", HealthEvaluator.worst(checks));
