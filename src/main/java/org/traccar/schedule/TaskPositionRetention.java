@@ -24,8 +24,11 @@ import org.traccar.config.Keys;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -94,9 +97,101 @@ public class TaskPositionRetention extends SingleScheduleTask {
         return total;
     }
 
+    /**
+     * Devices that have history but no longer exist.
+     *
+     * Deleting a device does not delete its positions and events: Traccar 6.3
+     * dropped the foreign keys. For anyone who has to erase a person's data on
+     * request, deleting the device and leaving its track behind is not erasing
+     * anything.
+     *
+     * Two guards, because this deletes whole histories. An empty list of
+     * existing devices deletes nothing: a failed or partial read must not turn
+     * every track into an orphan. And if at least half of the devices with
+     * history look orphaned, nothing is deleted either and a warning is logged;
+     * that looks like a broken read or a restore gone wrong far more than like
+     * a club deleting half its fleet.
+     *
+     * That second guard also stops a legitimate clean-up after deleting many
+     * devices at once - a load test that created and removed three hundred did
+     * exactly that on the test bench. A positive limit replaces it: up to that
+     * many deleted devices are cleaned, and above it nothing is.
+     */
+    static Set<Long> orphans(Set<Long> withHistory, Set<Long> existing, int limit) {
+        Set<Long> result = new HashSet<>();
+        if (existing.isEmpty()) {
+            return result;
+        }
+        for (long id : withHistory) {
+            if (!existing.contains(id)) {
+                result.add(id);
+            }
+        }
+        boolean refuse = limit > 0
+                ? result.size() > limit
+                : result.size() > 5 && result.size() * 2 >= withHistory.size();
+        if (refuse) {
+            LOGGER.warn("{} of {} devices with history look orphaned; not deleting anything"
+                    + " (database.deleteOrphanHistoryLimit is {})", result.size(), withHistory.size(), limit);
+            return new HashSet<>();
+        }
+        return result;
+    }
+
+    private Set<Long> ids(String sql) throws SQLException {
+        Set<Long> result = new HashSet<>();
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet rows = statement.executeQuery()) {
+            while (rows.next()) {
+                result.add(rows.getLong(1));
+            }
+        }
+        return result;
+    }
+
+    private int deleteByDevice(String table, long deviceId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "DELETE FROM " + table + " WHERE deviceid = ? LIMIT " + BATCH)) {
+            statement.setLong(1, deviceId);
+            return statement.executeUpdate();
+        }
+    }
+
+    /**
+     * Uses the (deviceid, fixtime) and (deviceid, eventtime) indexes: the
+     * device ids come from a loose index scan and each deletion is a range on
+     * one device. A single DELETE ... WHERE deviceid NOT IN (...) was measured
+     * first and scans the whole table on every batch.
+     */
+    private void deleteOrphans() {
+        Set<Long> withHistory;
+        Set<Long> existing;
+        try {
+            withHistory = ids("SELECT DISTINCT deviceid FROM tc_positions");
+            withHistory.addAll(ids("SELECT DISTINCT deviceid FROM tc_events"));
+            existing = ids("SELECT id FROM tc_devices");
+        } catch (SQLException e) {
+            LOGGER.warn("Could not read devices for orphan history, skipping", e);
+            return;
+        }
+        long positions = 0;
+        long events = 0;
+        Set<Long> orphaned = orphans(withHistory, existing,
+                config.getInteger(Keys.DATABASE_DELETE_ORPHAN_HISTORY_LIMIT));
+        for (long deviceId : orphaned) {
+            positions += purge(() -> deleteByDevice("tc_positions", deviceId), MAX_BATCHES);
+            events += purge(() -> deleteByDevice("tc_events", deviceId), MAX_BATCHES);
+        }
+        LOGGER.info("Orphan history: removed {} positions and {} events of {} deleted devices",
+                positions, events, orphaned.size());
+    }
+
     @Override
     public void schedule(ScheduledExecutorService executor) {
-        if (config.getInteger(Keys.DATABASE_POSITION_RETENTION_DAYS) > 0) {
+        if (config.getInteger(Keys.DATABASE_POSITION_RETENTION_DAYS) > 0
+                || config.getBoolean(Keys.DATABASE_DELETE_ORPHAN_HISTORY)) {
             executor.scheduleAtFixedRate(
                     this, INITIAL_DELAY_MINUTES, TimeUnit.DAYS.toMinutes(1), TimeUnit.MINUTES);
         }
@@ -112,6 +207,9 @@ public class TaskPositionRetention extends SingleScheduleTask {
 
     @Override
     public void run() {
+        if (config.getBoolean(Keys.DATABASE_DELETE_ORPHAN_HISTORY)) {
+            deleteOrphans();
+        }
         int days = config.getInteger(Keys.DATABASE_POSITION_RETENTION_DAYS);
         if (days <= 0) {
             return;

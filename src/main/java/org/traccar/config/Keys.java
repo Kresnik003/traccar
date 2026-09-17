@@ -977,6 +977,24 @@ public final class Keys {
      * Days of positions and events to keep. Older ones are deleted daily, except a device's last
      * known position. Zero keeps everything.
      */
+    /**
+     * Delete daily the positions and events of devices that no longer exist. Deleting a device
+     * does not delete its history, since the foreign keys were dropped in 6.3.
+     */
+    public static final ConfigKey<Boolean> DATABASE_DELETE_ORPHAN_HISTORY = new BooleanConfigKey(
+            "database.deleteOrphanHistory",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * Largest number of deleted devices whose history is removed in one run. Zero applies the
+     * default guard, which removes nothing when at least half of the devices with history look
+     * deleted. Set it to clean up on purpose after deleting many devices at once.
+     */
+    public static final ConfigKey<Integer> DATABASE_DELETE_ORPHAN_HISTORY_LIMIT = new IntegerConfigKey(
+            "database.deleteOrphanHistoryLimit",
+            List.of(KeyType.CONFIG),
+            0);
+
     public static final ConfigKey<Integer> DATABASE_POSITION_RETENTION_DAYS = new IntegerConfigKey(
             "database.positionRetentionDays",
             List.of(KeyType.CONFIG),
