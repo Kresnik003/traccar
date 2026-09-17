@@ -127,6 +127,21 @@ public class ValoracionResource extends BaseResource {
         return salida;
     }
 
+    /**
+     * This member's own ratings, so a screen can tell what is already rated without
+     * asking site by site.
+     *
+     * <p>It exists for the card that offers to rate a place after stopping there: it
+     * needs to leave out what this person already rated, and doing that with one
+     * request per candidate site would be a request per row.
+     */
+    @Path("mias")
+    @GET
+    public List<Valoracion> mias() throws StorageException {
+        return storage.getObjects(Valoracion.class, new Request(
+                new Columns.All(), new Condition.Equals("userId", getUserId())));
+    }
+
     /** The opinions on one site, with a name only where its author asked for one. */
     @Path("opiniones")
     @GET
