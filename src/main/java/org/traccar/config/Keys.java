@@ -1010,6 +1010,33 @@ public final class Keys {
             0);
 
     /**
+     * Days to keep positions without a fix: valid false, or exactly 0,0. Zero follows the general
+     * retention. A tracker in a garage sends one every few minutes and none of them is a place.
+     */
+    public static final ConfigKey<Integer> DATABASE_INVALID_POSITION_RETENTION_DAYS = new IntegerConfigKey(
+            "database.invalidPositionRetentionDays",
+            List.of(KeyType.CONFIG),
+            0);
+
+    /**
+     * Days to keep device status events: online, offline, unknown and inactive. Zero follows the
+     * general retention. Alarms and every other event type keep the general one.
+     */
+    public static final ConfigKey<Integer> DATABASE_STATUS_EVENT_RETENTION_DAYS = new IntegerConfigKey(
+            "database.statusEventRetentionDays",
+            List.of(KeyType.CONFIG),
+            0);
+
+    /**
+     * Days to keep the positions of a device inside the time of a group ride it took part in. Zero
+     * treats them like any other position. Needs the Nordes schema (nx_quedadas).
+     */
+    public static final ConfigKey<Integer> DATABASE_RIDE_RETENTION_DAYS = new IntegerConfigKey(
+            "database.rideRetentionDays",
+            List.of(KeyType.CONFIG),
+            0);
+
+    /**
      * Days to keep the log of who read location history (nx_accesos). Zero keeps it forever. The log
      * names who looked at whose bike, so it is personal data as well and needs a limit of its own.
      */

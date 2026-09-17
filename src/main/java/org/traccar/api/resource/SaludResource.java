@@ -28,6 +28,7 @@ import org.traccar.helper.HealthEvaluator.Check;
 import org.traccar.model.Device;
 import org.traccar.model.Server;
 import org.traccar.model.User;
+import org.traccar.schedule.TaskPositionRetention;
 import org.traccar.session.ConnectionManager;
 import org.traccar.session.FleetMetrics;
 import org.traccar.storage.StorageException;
@@ -99,17 +100,38 @@ public class SaludResource extends BaseResource {
         return result;
     }
 
-    private long oldestOtherThan(long deviceId, long positionId) {
+    private long oldestOtherThan(long deviceId, long positionId, boolean skipRides) {
+        if (skipRides) {
+            try {
+                return oldest(deviceId, positionId,
+                        " AND NOT EXISTS (" + TaskPositionRetention.IN_RIDE + ")");
+            } catch (SQLException e) {
+                // Without the ride tables the plain reading still has to answer:
+                // a -1 here would make the history look clean.
+            }
+        }
+        try {
+            return oldest(deviceId, positionId, "");
+        } catch (SQLException e) {
+            return -1;
+        }
+    }
+
+    /**
+     * The first position of a device by fixtime, walking the (deviceid, fixtime)
+     * index and stopping at the first one that matches. A MIN() with the ride
+     * condition would read every position of the device instead.
+     */
+    private long oldest(long deviceId, long positionId, String condition) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT MIN(fixtime) FROM tc_positions WHERE deviceid = ? AND id <> ?")) {
+                     "SELECT fixtime FROM tc_positions WHERE deviceid = ? AND id <> ?" + condition
+                             + " ORDER BY fixtime LIMIT 1")) {
             statement.setLong(1, deviceId);
             statement.setLong(2, positionId);
             try (ResultSet rows = statement.executeQuery()) {
                 return rows.next() && rows.getTimestamp(1) != null ? rows.getTimestamp(1).getTime() : -1;
             }
-        } catch (SQLException e) {
-            return -1;
         }
     }
 
@@ -182,25 +204,22 @@ public class SaludResource extends BaseResource {
         checks.add(HealthEvaluator.silentDevices(silent, silentHours));
 
         /*
-         * The oldest position by primary key, not MIN(fixtime). The index on
-         * positions is (deviceid, fixtime), so a global MIN(fixtime) scans the
-         * table; ordering by id reads one row. Ids grow with arrival, which is
-         * close enough to age for a check that looks at days.
+         * What is kept on purpose however old it is does not count for the
+         * pruning check: a device's last known position, or a bike stored for a
+         * year would report the pruning as broken; and, with
+         * database.rideRetentionDays longer than the general retention, the
+         * positions of a group ride.
          */
-        /*
-         * A device's last known position is kept on purpose however old it is,
-         * so it is not what the pruning check should look at: a bike stored for
-         * a year would otherwise report the pruning as broken.
-         */
+        int retention = config.getInteger(Keys.DATABASE_POSITION_RETENTION_DAYS);
+        boolean skipRides = retention > 0 && config.getInteger(Keys.DATABASE_RIDE_RETENTION_DAYS) > retention;
         long oldestDays;
         try {
             long oldest = HealthEvaluator.oldestCounting(oldestPerDevice(),
-                    deviceId -> oldestOtherThan(deviceId, lastPositions.getOrDefault(deviceId, 0L)));
+                    deviceId -> oldestOtherThan(deviceId, lastPositions.getOrDefault(deviceId, 0L), skipRides));
             oldestDays = oldest >= 0 ? (System.currentTimeMillis() - oldest) / 86400000L : -1;
         } catch (SQLException e) {
             oldestDays = -1;
         }
-        int retention = config.getInteger(Keys.DATABASE_POSITION_RETENTION_DAYS);
         checks.add(HealthEvaluator.history(oldestDays,
                 retention > 0 ? retention : config.getInteger(Keys.WEB_HEALTH_RETENTION_DAYS)));
 
