@@ -16,6 +16,7 @@
 package org.traccar.helper;
 
 import java.util.Comparator;
+import java.util.Locale;
 import java.util.List;
 import java.util.function.LongUnaryOperator;
 
@@ -36,6 +37,18 @@ public final class HealthEvaluator {
     public static final String OK = "ok";
     public static final String WARNING = "aviso";
     public static final String FAILURE = "fallo";
+
+    /*
+     * Values are written with a decimal comma, like the rest of the interface
+     * ("1,819 EUR/l"). Not through a Spanish locale: the Java runtime that
+     * Traccar ships is trimmed to 25 modules and has no jdk.localedata, so
+     * es-ES silently falls back to the root locale and prints "0.18" - while
+     * the unit tests, run on a full JDK, pass. Formatted neutrally and the
+     * point swapped by hand, which no runtime can undo.
+     */
+    private static String format(String pattern, double value) {
+        return String.format(Locale.ROOT, pattern, value).replace('.', ',');
+    }
 
     private HealthEvaluator() {
     }
@@ -91,7 +104,7 @@ public final class HealthEvaluator {
         if (used < 0) {
             return new Check("memoria", WARNING, "?", "No se pudo leer la memoria");
         }
-        String valor = String.format("%.0f %%", used);
+        String valor = format("%.0f %%", used);
         if (used > 95) {
             return new Check("memoria", FAILURE, valor, "Traccar se queda sin sitio");
         }
@@ -106,7 +119,7 @@ public final class HealthEvaluator {
             return new Check("disco", WARNING, "?", "No se pudo leer el disco");
         }
         double used = (1 - (double) usable / total) * 100;
-        String valor = String.format("%.0f %%", used);
+        String valor = format("%.0f %%", used);
         if (used >= 90) {
             return new Check("disco", FAILURE, valor, "Casi lleno: la base deja de escribir");
         }
@@ -122,7 +135,7 @@ public final class HealthEvaluator {
             return new Check("carga", OK, "?", "Este sistema no da la carga media");
         }
         double perCore = loadAverage / cores;
-        String valor = String.format("%.2f", perCore);
+        String valor = format("%.2f", perCore);
         if (perCore > 2) {
             return new Check("carga", FAILURE, valor, "Hay trabajo esperando procesador");
         }
