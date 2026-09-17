@@ -2,6 +2,7 @@ package org.traccar.protocol;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.traccar.ProtocolTest;
 
@@ -32,8 +33,13 @@ public class TeltonikaFrameDecoderTest extends ProtocolTest {
                 "474554202f20485454502f312e310d0a486f73743a20",
                 "5353482d322e302d476f0d0a0000000000000000",
                 "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"}) {
+            var buf = binary(basura);
             assertThrows(UnsupportedOperationException.class, () ->
-                    decoder.decode(null, null, binary(basura)));
+                    decoder.decode(null, null, buf));
+            // Y NO SE RECHAZA DOS VECES. Al cerrar la conexion Netty vuelve a
+            // descodificar lo que quede en el buffer; si quedaba la basura, el
+            // log sacaba el mismo aviso otra vez.
+            assertNull(decoder.decode(null, null, buf));
         }
 
         // Y LO QUE SI ES UNA TRAMA SIGUE PASANDO. Esta es la parte que de
