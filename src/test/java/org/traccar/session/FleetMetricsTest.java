@@ -31,6 +31,19 @@ public class FleetMetricsTest {
         assertTrue(text.contains("nordes_unknown_device_total{protocol=\"osmand\"} 1\n"), text);
     }
 
+    /** Kept apart from unknown identifiers: this one is a known device on the wrong port. */
+    @Test
+    public void testProtocolRejectionsByProtocol() {
+        FleetMetrics metrics = new FleetMetrics();
+        metrics.protocolRejected("osmand");
+        metrics.protocolRejected("osmand");
+        metrics.unknownDevice("teltonika");
+        String text = metrics.render();
+        assertTrue(text.contains("nordes_protocol_rejected_total{protocol=\"osmand\"} 2\n"), text);
+        assertFalse(text.contains("nordes_unknown_device_total{protocol=\"osmand\"}"), text);
+        assertFalse(text.contains("nordes_protocol_rejected_total{protocol=\"teltonika\"}"), text);
+    }
+
     /**
      * A label is copied verbatim into the output: a quote or a newline in it
      * would break every scrape, not just this line.
@@ -40,8 +53,10 @@ public class FleetMetricsTest {
         FleetMetrics metrics = new FleetMetrics();
         metrics.unknownDevice("bad\"}\nnordes_fake 1");
         metrics.unknownDevice(null);
+        metrics.protocolRejected("x\"} 9\n");
         String text = metrics.render();
         assertTrue(text.contains("nordes_unknown_device_total{protocol=\"other\"} 2\n"), text);
+        assertTrue(text.contains("nordes_protocol_rejected_total{protocol=\"other\"} 1\n"), text);
         assertFalse(text.contains("nordes_fake"), text);
     }
 
@@ -50,7 +65,8 @@ public class FleetMetricsTest {
         String text = new FleetMetrics().render();
         for (String name : new String[] {
                 "nordes_positions_stored_total", "nordes_unknown_device_total",
-                "nordes_connections_rejected_total", "nordes_devices_connected"}) {
+                "nordes_connections_rejected_total", "nordes_devices_connected",
+                "nordes_protocol_rejected_total"}) {
             assertTrue(text.contains("# TYPE " + name + " "), name);
         }
     }

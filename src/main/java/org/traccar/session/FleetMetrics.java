@@ -43,6 +43,7 @@ public class FleetMetrics {
     private volatile long lastStoredAt;
     private final AtomicLong connectionsRejected = new AtomicLong();
     private final Map<String, AtomicLong> unknownDevices = new ConcurrentHashMap<>();
+    private final Map<String, AtomicLong> protocolsRejected = new ConcurrentHashMap<>();
     private volatile LongSupplier devicesConnected = () -> 0;
 
     public void positionStored() {
@@ -68,8 +69,16 @@ public class FleetMetrics {
      * every scrape.
      */
     public void unknownDevice(String protocol) {
-        String key = protocol != null && PROTOCOL.matcher(protocol).matches() ? protocol : "other";
-        unknownDevices.computeIfAbsent(key, k -> new AtomicLong()).incrementAndGet();
+        unknownDevices.computeIfAbsent(label(protocol), k -> new AtomicLong()).incrementAndGet();
+    }
+
+    /** Counts a known device turned away for reporting on a protocol that is not its own. */
+    public void protocolRejected(String protocol) {
+        protocolsRejected.computeIfAbsent(label(protocol), k -> new AtomicLong()).incrementAndGet();
+    }
+
+    private static String label(String protocol) {
+        return protocol != null && PROTOCOL.matcher(protocol).matches() ? protocol : "other";
     }
 
     public void setDevicesConnected(LongSupplier supplier) {
@@ -84,11 +93,11 @@ public class FleetMetrics {
 
         metric(out, "nordes_unknown_device_total", "counter",
                 "Frames from an identifier with no device, by protocol.");
-        unknownDevices.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .forEach(entry -> out.append("nordes_unknown_device_total{protocol=\"")
-                        .append(entry.getKey()).append("\"} ")
-                        .append(entry.getValue().get()).append('\n'));
+        byProtocol(out, "nordes_unknown_device_total", unknownDevices);
+
+        metric(out, "nordes_protocol_rejected_total", "counter",
+                "Known devices turned away for reporting on another protocol, by protocol.");
+        byProtocol(out, "nordes_protocol_rejected_total", protocolsRejected);
 
         metric(out, "nordes_connections_rejected_total", "counter",
                 "Connections closed by server.connectionLimit.");
@@ -98,6 +107,14 @@ public class FleetMetrics {
                 "Devices with an open session.");
         out.append("nordes_devices_connected ").append(devicesConnected.getAsLong()).append('\n');
         return out.toString();
+    }
+
+    private static void byProtocol(StringBuilder out, String name, Map<String, AtomicLong> counters) {
+        counters.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> out.append(name).append("{protocol=\"")
+                        .append(entry.getKey()).append("\"} ")
+                        .append(entry.getValue().get()).append('\n'));
     }
 
     private static void metric(StringBuilder out, String name, String type, String help) {

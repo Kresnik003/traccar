@@ -382,6 +382,15 @@ public final class Keys {
             0);
 
     /**
+     * Accept a known device only on the protocol of its last stored position, unless its
+     * allowedProtocols attribute says otherwise. Without it, a Teltonika identifier sent over the
+     * OsmAnd HTTP port writes positions into that device's history.
+     */
+    public static final ConfigKey<Boolean> SERVER_PROTOCOL_LOCK = new BooleanConfigKey(
+            "server.protocolLock",
+            List.of(KeyType.CONFIG));
+
+    /**
      * Send device responses immediately before writing it in the database.
      */
     public static final ConfigKey<Boolean> SERVER_DELAY_ACKNOWLEDGEMENT = new BooleanConfigKey(
