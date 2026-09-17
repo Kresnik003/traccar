@@ -26,6 +26,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.inject.Inject;
 import org.traccar.api.BaseResource;
 import org.traccar.model.Device;
 import org.traccar.model.Quedada;
@@ -37,6 +38,12 @@ import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
+
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -65,6 +72,9 @@ import java.util.Objects;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class QuedadaResource extends BaseResource {
+
+    @Inject
+    private DataSource dataSource;
 
     private static final List<String> MODALIDADES = List.of("carrera", "motoclub", "rider");
     private static final List<String> TIPOS = List.of("ruta", "circuito", "libre");
@@ -324,6 +334,111 @@ public class QuedadaResource extends BaseResource {
                 new Condition.Equals("quedadaId", id),
                 new Condition.Equals("deviceId", deviceId))));
         return Response.noContent().build();
+    }
+
+
+    /**
+     * The classification of a ride, as an ordered table (improvement 51).
+     *
+     * The times are worked out where the laps are known - from the positions,
+     * with the circuit's finish line and door radius - and stored here so they
+     * no longer live in whichever browser tab was open. Anyone who can see the
+     * ride can read them; only the ride's owner writes them.
+     */
+    public record Resultado(long deviceId, String dorsal, int vueltas, Integer mejorMs,
+                            Integer mejorNumero, Long totalMs, int puesto) {
+    }
+
+    @Path("{id}/resultados")
+    @GET
+    public List<Resultado> resultados(@PathParam("id") long id) throws StorageException {
+        visible(id);
+        List<Resultado> result = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT deviceid, dorsal, vueltas, mejorms, mejornumero, totalms, puesto"
+                             + " FROM nx_resultados WHERE quedadaid = ? ORDER BY puesto")) {
+            statement.setLong(1, id);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    result.add(new Resultado(
+                            rows.getLong(1), rows.getString(2), rows.getInt(3),
+                            (Integer) rows.getObject(4), (Integer) rows.getObject(5),
+                            (Long) rows.getObject(6), rows.getInt(7)));
+                }
+            }
+        } catch (SQLException e) {
+            throw new StorageException(e);
+        }
+        return result;
+    }
+
+    /**
+     * Stores the classification of a ride, replacing what was there.
+     *
+     * Only trackers that are in the ride count: a result for a device that
+     * never took part would let a table name a bike the ride does not include.
+     * The number is copied, not looked up, so a result read a year later keeps
+     * the numbers of the day it was run.
+     */
+    @Path("{id}/resultados")
+    @PUT
+    public Response guardarResultados(
+            @PathParam("id") long id, List<Resultado> resultados) throws StorageException {
+        propia(id);
+        Map<Long, String> enLaQuedada = new LinkedHashMap<>();
+        for (QuedadaEquipo equipo : storage.getObjects(QuedadaEquipo.class, new Request(
+                new Columns.Exclude("id"), new Condition.Equals("quedadaId", id)))) {
+            enLaQuedada.put(equipo.getDeviceId(), equipo.getDorsal());
+        }
+        for (Resultado r : resultados) {
+            if (!enLaQuedada.containsKey(r.deviceId())) {
+                throw new IllegalArgumentException(
+                        "Device " + r.deviceId() + " is not in the ride");
+            }
+        }
+        try (Connection connection = dataSource.getConnection()) {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "DELETE FROM nx_resultados WHERE quedadaid = ?")) {
+                statement.setLong(1, id);
+                statement.executeUpdate();
+            }
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO nx_resultados"
+                            + " (quedadaid, deviceid, dorsal, vueltas, mejorms, mejornumero, totalms, puesto)"
+                            + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
+                for (Resultado r : resultados) {
+                    statement.setLong(1, id);
+                    statement.setLong(2, r.deviceId());
+                    // The number frozen on the ride wins over one sent by the
+                    // client, so the stored result cannot disagree with it.
+                    statement.setString(3, enLaQuedada.get(r.deviceId()));
+                    statement.setInt(4, r.vueltas());
+                    setInteger(statement, 5, r.mejorMs());
+                    setInteger(statement, 6, r.mejorNumero());
+                    if (r.totalMs() != null) {
+                        statement.setLong(7, r.totalMs());
+                    } else {
+                        statement.setNull(7, java.sql.Types.BIGINT);
+                    }
+                    statement.setInt(8, r.puesto());
+                    statement.addBatch();
+                }
+                statement.executeBatch();
+            }
+        } catch (SQLException e) {
+            throw new StorageException(e);
+        }
+        return Response.noContent().build();
+    }
+
+    private static void setInteger(PreparedStatement statement, int index, Integer value)
+            throws SQLException {
+        if (value != null) {
+            statement.setInt(index, value);
+        } else {
+            statement.setNull(index, java.sql.Types.INTEGER);
+        }
     }
 
 }
