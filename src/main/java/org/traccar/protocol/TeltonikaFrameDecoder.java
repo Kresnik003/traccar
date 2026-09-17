@@ -57,6 +57,10 @@ public class TeltonikaFrameDecoder extends BaseFrameDecoder {
         // preambulo AVL. Cualquier otra cosa se cierra aqui.
         int first = buf.getUnsignedShort(buf.readerIndex());
         if (first != IMEI_LENGTH && first != 0) {
+            // Lo que queda se descarta. Si se deja en el buffer, al cerrarse la
+            // conexion Netty lo vuelve a pasar por aqui y el mismo rechazo sale
+            // dos veces en el log, con su traza, por cada barrido.
+            buf.skipBytes(buf.readableBytes());
             throw new UnsupportedOperationException("not a teltonika frame");
         }
 
