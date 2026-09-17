@@ -1737,6 +1737,19 @@ public final class Keys {
      * Maximum number of positions returned by a single history or export request. Prevents unbounded queries from
      * loading an entire result set into memory. Set to 0 to disable the limit.
      */
+    /**
+     * Total number of positions a single spreadsheet report may hold in memory, across all of
+     * its devices. REPORT_MAX_POSITIONS caps each device on its own, which multiplies by the
+     * number of devices; this caps the whole request. Over the ceiling the report is refused
+     * with an explanation, instead of exhausting the heap and terminating the process.
+     * Measured with the default 891 MB heap: 50000 positions build the file in 26 s, 100000
+     * killed the server. Raise it along with the heap.
+     */
+    public static final ConfigKey<Integer> REPORT_MAX_TOTAL_POSITIONS = new IntegerConfigKey(
+            "report.maxTotalPositions",
+            List.of(KeyType.CONFIG),
+            50000);
+
     public static final ConfigKey<Integer> REPORT_MAX_POSITIONS = new IntegerConfigKey(
             "report.maxPositions",
             List.of(KeyType.CONFIG),
