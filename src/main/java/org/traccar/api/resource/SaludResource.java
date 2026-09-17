@@ -230,6 +230,12 @@ public class SaludResource extends BaseResource {
                 withoutSecondFactor.add(user.getName());
             }
         }
+        long deviceCount = storage.getObjects(Device.class, new Request(new Columns.Include("id"))).size();
+        checks.add(HealthEvaluator.quota("equiposCupo", deviceCount,
+                config.getInteger(Keys.INSTALLATION_MAX_DEVICES)));
+        checks.add(HealthEvaluator.quota("rutasCupo", contarFilas("nx_rutas"),
+                config.getInteger(Keys.INSTALLATION_MAX_ROUTES)));
+
         checks.add(HealthEvaluator.secondFactor(
                 permissionsService.getServer().getBoolean(Keys.WEB_TOTP_ENABLE.getKey()), withoutSecondFactor));
 
@@ -240,4 +246,14 @@ public class SaludResource extends BaseResource {
         return result;
     }
 
+
+    private long contarFilas(String tabla) {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM " + tabla);
+             ResultSet rows = statement.executeQuery()) {
+            return rows.next() ? rows.getLong(1) : 0;
+        } catch (SQLException e) {
+            return 0;
+        }
+    }
 }

@@ -983,6 +983,21 @@ public final class Keys {
             0);
 
     /**
+     * Largest number of devices this installation is meant to hold. The health check warns at 80 %
+     * and reports a failure at the ceiling. Zero is no ceiling. Per-installation, not per-user.
+     */
+    public static final ConfigKey<Integer> INSTALLATION_MAX_DEVICES = new IntegerConfigKey(
+            "installation.maxDevices",
+            List.of(KeyType.CONFIG),
+            0);
+
+    /** Largest number of routes (nx_rutas) this installation is meant to hold. Zero is no ceiling. */
+    public static final ConfigKey<Integer> INSTALLATION_MAX_ROUTES = new IntegerConfigKey(
+            "installation.maxRoutes",
+            List.of(KeyType.CONFIG),
+            0);
+
+    /**
      * Days of positions and events to keep. Older ones are deleted daily, except a device's last
      * known position. Zero keeps everything.
      */
