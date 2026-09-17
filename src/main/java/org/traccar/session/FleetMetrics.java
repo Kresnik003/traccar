@@ -40,12 +40,19 @@ public class FleetMetrics {
     private static final Pattern PROTOCOL = Pattern.compile("[a-z0-9]{1,32}");
 
     private final AtomicLong positionsStored = new AtomicLong();
+    private volatile long lastStoredAt;
     private final AtomicLong connectionsRejected = new AtomicLong();
     private final Map<String, AtomicLong> unknownDevices = new ConcurrentHashMap<>();
     private volatile LongSupplier devicesConnected = () -> 0;
 
     public void positionStored() {
         positionsStored.incrementAndGet();
+        lastStoredAt = System.currentTimeMillis();
+    }
+
+    /** Milliseconds since the epoch of the last stored position, or zero if none yet. */
+    public long getLastStoredAt() {
+        return lastStoredAt;
     }
 
     public void connectionRejected() {
