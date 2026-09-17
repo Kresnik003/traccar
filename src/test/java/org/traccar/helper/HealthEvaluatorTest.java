@@ -157,6 +157,15 @@ public class HealthEvaluatorTest {
     }
 
     @Test
+    public void testQuotaWarnsBeforeItHurts() {
+        assertEquals(HealthEvaluator.OK, HealthEvaluator.quota("equiposCupo", 500, 0).estado());
+        assertEquals(HealthEvaluator.OK, HealthEvaluator.quota("equiposCupo", 70, 100).estado());
+        assertEquals(HealthEvaluator.WARNING, HealthEvaluator.quota("equiposCupo", 80, 100).estado());
+        assertEquals(HealthEvaluator.FAILURE, HealthEvaluator.quota("equiposCupo", 100, 100).estado());
+        assertEquals("100 de 100", HealthEvaluator.quota("equiposCupo", 100, 100).valor());
+    }
+
+    @Test
     public void testWorstWins() {
         assertEquals(HealthEvaluator.FAILURE, HealthEvaluator.worst(List.of(
                 HealthEvaluator.memory(10), HealthEvaluator.disk(100, 10), HealthEvaluator.load(1, 8))));

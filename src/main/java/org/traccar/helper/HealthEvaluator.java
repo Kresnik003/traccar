@@ -215,6 +215,27 @@ public final class HealthEvaluator {
         return best;
     }
 
+    /**
+     * A per-installation ceiling: how many devices, routes or rides a machine
+     * holds before it struggles. Traccar limits per user; this is the total of
+     * the box, the number that a club on a 1 GB server actually hits. Zero is no
+     * ceiling. It warns at 80 % so there is time to act, and only reports a
+     * failure at the ceiling itself - it never blocks, it tells.
+     */
+    public static Check quota(String id, long count, int ceiling) {
+        if (ceiling <= 0) {
+            return new Check(id, OK, count + " (sin tope)", null);
+        }
+        String valor = count + " de " + ceiling;
+        if (count >= ceiling) {
+            return new Check(id, FAILURE, valor, "En el tope de esta instalación");
+        }
+        if (count >= ceiling * 0.8) {
+            return new Check(id, WARNING, valor, "Cerca del tope de esta instalación");
+        }
+        return new Check(id, OK, valor, null);
+    }
+
     public static Check history(long oldestDays, int retentionDays) {
         if (oldestDays < 0) {
             return new Check("historico", OK, "vacío", null);
