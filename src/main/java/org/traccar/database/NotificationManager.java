@@ -29,7 +29,11 @@ import org.traccar.model.Device;
 import org.traccar.model.Event;
 import org.traccar.model.Geofence;
 import org.traccar.model.Maintenance;
+import org.traccar.model.AvisoPendiente;
+import org.traccar.model.Notification;
+import org.traccar.model.User;
 import org.traccar.model.Position;
+import org.traccar.notification.EsperaReintento;
 import org.traccar.notification.NotificationGrouper;
 import org.traccar.notification.NotificatorManager;
 import org.traccar.session.cache.CacheManager;
@@ -41,6 +45,7 @@ import org.traccar.storage.query.Request;
 import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import java.util.Date;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
@@ -52,6 +57,8 @@ public class NotificationManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(NotificationManager.class);
 
+    private static final int ERROR_MAXIMO = 512;
+
     private final Storage storage;
     private final CacheManager cacheManager;
     private final EventForwarder eventForwarder;
@@ -59,6 +66,9 @@ public class NotificationManager {
     private final Geocoder geocoder;
 
     private final boolean geocodeOnRequest;
+    private final int reintentos;
+    private final long esperaBase;
+    private final long esperaTope;
     private final long timeThreshold;
     private final Set<Long> blockedUsers = new HashSet<>();
 
@@ -75,6 +85,9 @@ public class NotificationManager {
         this.notificatorManager = notificatorManager;
         this.geocoder = geocoder;
         geocodeOnRequest = config.getBoolean(Keys.GEOCODER_ON_REQUEST);
+        reintentos = config.getInteger(Keys.NOTIFICATOR_RETRY_ATTEMPTS);
+        esperaBase = config.getLong(Keys.NOTIFICATOR_RETRY_DELAY);
+        esperaTope = config.getLong(Keys.NOTIFICATOR_RETRY_MAX_DELAY);
         timeThreshold = config.getLong(Keys.NOTIFICATOR_TIME_THRESHOLD);
         String blockedUsersString = config.getString(Keys.NOTIFICATION_BLOCK_USERS);
         if (blockedUsersString != null) {
@@ -150,11 +163,48 @@ public class NotificationManager {
                                         notification, user, event, position)
                                 .exceptionally(throwable -> {
                                     LOGGER.warn("Notification failed", throwable);
+                                    // AND IT IS NO LONGER LOST. Telegram going down, the network
+                                    // blinking, a 429 - and the alert saying the bike was knocked
+                                    // over never arrived, with nobody the wiser unless they read
+                                    // the log. Now it waits in a queue and is tried again.
+                                    encolar(notification, user, event, position, notificator, throwable);
                                     return null;
                                 });
                     }
                 });
             });
+        }
+    }
+
+    /**
+     * Remember a delivery that failed, so the retry task can try it again.
+     *
+     * Only identifiers are stored, never the formatted text: the queue must not
+     * become a plain text log of where people were. Failing to enqueue is logged
+     * and swallowed - a broken queue must not stop the remaining channels.
+     */
+    private void encolar(
+            Notification notification, User user, Event event, Position position,
+            String notificator, Throwable causa) {
+        if (reintentos <= 0) {
+            return;
+        }
+        try {
+            AvisoPendiente pendiente = new AvisoPendiente();
+            pendiente.setEventId(event.getId());
+            pendiente.setPositionId(position != null ? position.getId() : 0);
+            pendiente.setUserId(user.getId());
+            pendiente.setNotificationId(notification.getId());
+            pendiente.setNotificator(notificator);
+            pendiente.setIntentos(1);
+            Date ahora = new Date();
+            pendiente.setCreado(ahora);
+            pendiente.setProximo(new Date(ahora.getTime()
+                    + EsperaReintento.espera(1, esperaBase, esperaTope)));
+            pendiente.setError(EsperaReintento.motivo(causa, ERROR_MAXIMO));
+            storage.addObject(pendiente, new Request(new Columns.Exclude("id")));
+        } catch (Exception e) {
+            LOGGER.warn("Could not queue the failed notification", e);
         }
     }
 
