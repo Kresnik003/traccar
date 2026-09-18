@@ -16,18 +16,28 @@
 package org.traccar.handler.events;
 
 import jakarta.inject.Inject;
+import org.traccar.database.RegistroOrdenes;
 import org.traccar.model.Event;
 import org.traccar.model.Position;
 
 public class CommandResultEventHandler extends BaseEventHandler {
 
+    private final RegistroOrdenes registroOrdenes;
+
     @Inject
-    public CommandResultEventHandler() {}
+    public CommandResultEventHandler(RegistroOrdenes registroOrdenes) {
+        this.registroOrdenes = registroOrdenes;
+    }
 
     @Override
     public void onPosition(Position position, Callback callback) {
         Object commandResult = position.getAttributes().get(Position.KEY_RESULT);
         if (commandResult != null) {
+            // The reply carries no command id, so it is matched to the oldest
+            // command of this device still waiting. The device closes the
+            // connection after answering one command, so there is never more
+            // than one outstanding.
+            registroOrdenes.contestar(position.getDeviceId(), (String) commandResult);
             Event event = new Event(Event.TYPE_COMMAND_RESULT, position);
             event.set(Position.KEY_RESULT, (String) commandResult);
             callback.eventDetected(event);
