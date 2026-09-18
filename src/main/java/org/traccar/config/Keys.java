@@ -1583,6 +1583,32 @@ public final class Keys {
      * Seconds during which repeats of the same notification, for the same user, channel and device,
      * are folded into one summary. The first one always goes out at once. Zero disables grouping.
      */
+    /**
+     * How many times to retry a notification that could not be delivered. Zero disables the queue
+     * entirely and restores the old behaviour: a failed notification is logged and lost.
+     */
+    public static final ConfigKey<Integer> NOTIFICATOR_RETRY_ATTEMPTS = new IntegerConfigKey(
+            "notificator.retryAttempts",
+            List.of(KeyType.CONFIG),
+            0);
+
+    /**
+     * Milliseconds to wait before the first retry. The wait doubles with every attempt.
+     */
+    public static final ConfigKey<Long> NOTIFICATOR_RETRY_DELAY = new LongConfigKey(
+            "notificator.retryDelay",
+            List.of(KeyType.CONFIG),
+            60 * 1000L);
+
+    /**
+     * Longest wait between retries, in milliseconds. Without a cap the tenth attempt lands days
+     * away, and an alert that arrives days later is worse than one that never arrives.
+     */
+    public static final ConfigKey<Long> NOTIFICATOR_RETRY_MAX_DELAY = new LongConfigKey(
+            "notificator.retryMaxDelay",
+            List.of(KeyType.CONFIG),
+            60 * 60 * 1000L);
+
     public static final ConfigKey<Long> NOTIFICATOR_GROUP_WINDOW = new LongConfigKey(
             "notificator.groupWindow",
             List.of(KeyType.CONFIG),
