@@ -51,6 +51,8 @@ public class TeltonikaProtocolDecoder extends BaseProtocolDecoder {
 
     private static final int IMAGE_PACKET_MAX = 2048;
 
+    private static final Predicate<String> FT_MODEL = (m) -> m != null && m.matches("FT[A-Z]\\d{3}");
+
     private static final Map<Integer, Map<Predicate<String>, BiConsumer<Position, ByteBuf>>> PARAMETERS =
             new HashMap<>();
 
@@ -194,7 +196,7 @@ public class TeltonikaProtocolDecoder extends BaseProtocolDecoder {
         Predicate<String> fmbXXX = (m) -> m != null && m.matches("FM[B-Z]...|MTB100|MSP500");
         Predicate<String> fmb6XX = (m) -> m != null && m.matches("FM.6..");
         Predicate<String> tatXXX = (m) -> m != null && m.matches("T.T...");
-        Predicate<String> ftXXX = (m) -> m != null && m.matches("FT[A-Z]\\d{3}");
+        Predicate<String> ftXXX = FT_MODEL;
 
         register(1, any, (p, b) -> p.set(Position.PREFIX_IN + 1, b.readUnsignedByte() > 0));
         register(2, any, (p, b) -> p.set(Position.PREFIX_IN + 2, b.readUnsignedByte() > 0));
@@ -277,7 +279,13 @@ public class TeltonikaProtocolDecoder extends BaseProtocolDecoder {
             }
         });
         register(175, fmbXXX.or(ftXXX), (p, b) -> {
-            p.addAlarm(b.readUnsignedByte() > 0 ? Position.ALARM_GEOFENCE_ENTER : Position.ALARM_GEOFENCE_EXIT);
+            int value = b.readUnsignedByte();
+            // A heartbeat without a fix reports 0,0: the device's own geofence engine
+            // may flag a crossing, but nobody moved. The computed attributes had this
+            // guard (valid and not 0,0); naming the parameter had bypassed it.
+            if (p.getValid()) {
+                p.addAlarm(value > 0 ? Position.ALARM_GEOFENCE_ENTER : Position.ALARM_GEOFENCE_EXIT);
+            }
         });
         register(636, fmbXXX.or(tatXXX), (p, b) -> p.set("cid4g", b.readUnsignedInt()));
         register(662, fmbXXX, (p, b) -> p.set(Position.KEY_DOOR, b.readUnsignedByte() > 0));
@@ -329,6 +337,17 @@ public class TeltonikaProtocolDecoder extends BaseProtocolDecoder {
             if (entry.getKey().test(model)) {
                 entry.getValue().accept(position, buf);
                 buf.readerIndex(index + length);
+                // The FT platform keeps the raw ioNNN next to the named parameter. Until
+                // 2026-09-17 an FT device was unknown to this map and published everything
+                // as ioNNN; the club's computed attributes and alerts were written against
+                // that, and naming the parameters silently switched nine of them off (sleep
+                // state, external power, geofence events, crash severity). The named value is
+                // the better one; the raw one is what the existing expressions read.
+                if (FT_MODEL.test(model) && length <= 8) {
+                    buf.readerIndex(index);
+                    position.set(Position.PREFIX_IO + id, readValue(buf, length));
+                    buf.readerIndex(index + length);
+                }
                 return;
             }
         }
@@ -604,6 +623,9 @@ public class TeltonikaProtocolDecoder extends BaseProtocolDecoder {
                     }
                 } else if ((id == 1429 || id == 1432) && length == 8) {
                     String prefix = id == 1429 ? "crashAvg" : "crashMax";
+                    // The raw vector too, in hex, which is what the crash severity attribute
+                    // parsed before the decoder learned to name it.
+                    position.set(Position.PREFIX_IO + id, ByteBufUtil.hexDump(buf.slice(buf.readerIndex(), 8)));
                     position.set(prefix + "Magnitude", buf.readUnsignedShort());
                     position.set(prefix, String.format(
                             "[%d,%d,%d]", buf.readShort(), buf.readShort(), buf.readShort()));
