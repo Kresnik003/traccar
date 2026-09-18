@@ -71,6 +71,19 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.api.resource.LocationAccessFilter",
         "org.traccar.session.ProtocolLock",
         "org.traccar.helper.FitWriter",
+        // Los parches posteriores al 0015. El 18/9/2026 el diagnostico decia que
+        // faltaban parches que si estaban: la lista se quedo en el 0015 y nadie
+        // la volvio a tocar. Solo entran clases nuevas: un parche que toca una
+        // clase de serie (0021, 0029, los del decoder) no se distingue por nombre.
+        "org.traccar.api.resource.ConsentimientoResource",
+        "org.traccar.notification.NotificationGrouper",
+        "org.traccar.helper.ResetCode",
+        "org.traccar.helper.HealthEvaluator",
+        "org.traccar.reports.common.ReportBudget",
+        "org.traccar.api.resource.ValoracionResource",
+        "org.traccar.model.AvisoPendiente",
+        "org.traccar.api.resource.OrdenResource",
+        "org.traccar.geocoder.GuardedGeocoder",
     };
 
     private static final String[] CONFIG_KEYS = {
