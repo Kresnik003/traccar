@@ -61,6 +61,7 @@ import org.traccar.geocoder.GeocodeXyzGeocoder;
 import org.traccar.geocoder.Geocoder;
 import org.traccar.geocoder.GisgraphyGeocoder;
 import org.traccar.geocoder.GoogleGeocoder;
+import org.traccar.geocoder.GuardedGeocoder;
 import org.traccar.geocoder.HereGeocoder;
 import org.traccar.geocoder.LocationIqGeocoder;
 import org.traccar.geocoder.MapQuestGeocoder;
@@ -261,7 +262,10 @@ public class MainModule extends AbstractModule {
                 default -> new GoogleGeocoder(client, url, key, language, cacheSize, addressFormat);
             };
             geocoder.setStatisticsManager(statisticsManager);
-            return geocoder;
+            // Wrapped here and not at the call sites: the pipeline, the report builder and the
+            // notification formatter all ask through this one object, and a guard written in one
+            // of the three is a guard missing from the other two.
+            return new GuardedGeocoder(geocoder);
         }
         return null;
     }
