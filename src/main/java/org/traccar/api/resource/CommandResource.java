@@ -25,6 +25,7 @@ import org.traccar.api.ExtendedObjectResource;
 import org.traccar.command.CommandSender;
 import org.traccar.command.CommandSenderManager;
 import org.traccar.database.CommandsManager;
+import org.traccar.database.RegistroOrdenes;
 import org.traccar.helper.LogAction;
 import org.traccar.helper.model.DeviceUtil;
 import org.traccar.model.Command;
@@ -67,6 +68,9 @@ public class CommandResource extends ExtendedObjectResource<Command> {
 
     @Inject
     private CommandsManager commandsManager;
+
+    @Inject
+    private RegistroOrdenes registroOrdenes;
 
     @Inject
     private ServerManager serverManager;
@@ -140,6 +144,9 @@ public class CommandResource extends ExtendedObjectResource<Command> {
                 Command command = QueuedCommand.fromCommand(entity).toCommand();
                 command.setDeviceId(device.getId());
                 QueuedCommand queuedCommand = commandsManager.sendCommand(command);
+                registroOrdenes.anotar(
+                        device.getId(), getUserId(), command.getType(),
+                        command.getDescription(), queuedCommand != null);
                 if (queuedCommand != null) {
                     queuedCommands.add(queuedCommand);
                 }
@@ -150,6 +157,12 @@ public class CommandResource extends ExtendedObjectResource<Command> {
         } else {
             permissionsService.checkPermission(Device.class, getUserId(), entity.getDeviceId());
             QueuedCommand queuedCommand = commandsManager.sendCommand(entity);
+            // Write down that it left. Without this a command is send-and-pray:
+            // somebody cutting the engine of their bike from a phone sees "sent"
+            // and has no way of knowing whether it arrived.
+            registroOrdenes.anotar(
+                    entity.getDeviceId(), getUserId(), entity.getType(),
+                    entity.getDescription(), queuedCommand != null);
             if (queuedCommand != null) {
                 return Response.accepted(queuedCommand).build();
             }
