@@ -73,6 +73,21 @@ public final class EsperaReintento {
     }
 
     /**
+     * Whether a queued notification gets another retry.
+     *
+     * The queue counts ATTEMPTS, and the first one is the original send that
+     * failed and put the row there. notificator.retryAttempts counts RETRIES.
+     * Comparing one with the other directly, as the first version did, gave N
+     * retries as N - 1.
+     *
+     * @param intentosHechos attempts made so far, the original send included
+     * @param reintentos     notificator.retryAttempts
+     */
+    public static boolean quedanReintentos(int intentosHechos, int reintentos) {
+        return quedanIntentos(intentosHechos - 1, reintentos);
+    }
+
+    /**
      * The reason a delivery failed, short enough to store.
      *
      * A Java stack trace is kilobytes per row and can carry the channel URL,
