@@ -18,6 +18,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -68,8 +69,11 @@ public class MotionEventHandlerNoFixTest extends BaseTest {
         handler.onPosition(position(false, 60), events::add);
 
         assertTrue(events.isEmpty(), "no fix, no motion, no event");
-        // Not even looked at: the device state is left exactly as it was.
-        verify(device, never()).getMotionStreak();
+        // The device state is left exactly as it was. (Until 2026-09-19 this
+        // checked that the state was not even read; a heartbeat now reads it,
+        // because with a trip open it can close it - NoFixPipelineTest.)
+        verify(device, never()).setMotionStreak(anyBoolean());
+        verify(device, never()).setMotionTime(any());
     }
 
     @Test

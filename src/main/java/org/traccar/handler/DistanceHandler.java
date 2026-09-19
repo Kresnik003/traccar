@@ -19,6 +19,8 @@ package org.traccar.handler;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.DistanceCalculator;
+import org.traccar.helper.model.AttributeUtil;
+import org.traccar.helper.model.Fijacion;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
 
@@ -51,16 +53,34 @@ public class DistanceHandler extends BasePositionHandler {
         Position last = cacheManager.getPosition(position.getDeviceId());
         if (last != null) {
             totalDistance = last.getDouble(Position.KEY_TOTAL_DISTANCE);
+            // NO FIX, NO DISTANCE, IN EITHER DIRECTION. A heartbeat at 0,0 after a
+            // real position measured the jump to the Gulf of Guinea, and the next
+            // real position measured the jump back: 4,909 km from Ferrol,
+            // added to totalDistance, and read by the trip logic as a trip that
+            // moved and stopped - a "stopped" alert on a parked bike. Excluding
+            // those positions from the motion history (0029) did not help: the
+            // distance was already written on the position.
+            //
+            // So a position without a fix measures nothing, and a position with a
+            // fix measures from the last one that had a fix, not from the last one.
+            boolean guard = AttributeUtil.lookup(
+                    cacheManager, Keys.EVENT_IGNORE_INVALID_POSITIONS, position.getDeviceId());
+            boolean fix = Fijacion.tiene(position);
+            Position reference = guard ? Fijacion.ultima(cacheManager.getPositions(position.getDeviceId())) : last;
             if (!position.hasAttribute(Position.KEY_DISTANCE)) {
-                distance = DistanceCalculator.distance(position, last);
+                distance = !guard || (fix && reference != null)
+                        ? DistanceCalculator.distance(position, reference) : 0;
             }
-            if (filter && last.getLatitude() != 0 && last.getLongitude() != 0) {
+            // The filter would copy the coordinates of the reference, and its
+            // valid flag, onto a position without a fix: a heartbeat made valid.
+            if (filter && reference != null && (!guard || fix)
+                    && reference.getLatitude() != 0 && reference.getLongitude() != 0) {
                 boolean satisfiesMin = minError == 0 || distance > minError;
                 boolean satisfiesMax = maxError == 0 || distance < maxError;
                 if (!satisfiesMin || !satisfiesMax) {
-                    position.setValid(last.getValid());
-                    position.setLatitude(last.getLatitude());
-                    position.setLongitude(last.getLongitude());
+                    position.setValid(reference.getValid());
+                    position.setLatitude(reference.getLatitude());
+                    position.setLongitude(reference.getLongitude());
                     distance = 0;
                 }
             }

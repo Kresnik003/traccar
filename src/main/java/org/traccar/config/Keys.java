@@ -558,8 +558,11 @@ public final class Keys {
             0.01);
 
     /**
-     * Ignore positions without a valid fix when deciding geofence and trip events. Such a position has no coordinates
-     * to reason about: it neither leaves a geofence nor moves the vehicle. Set to false to restore the stock behaviour.
+     * Ignore positions without a fix when deciding geofence and trip events and when measuring distance. A position
+     * has no fix when it is not valid, when it is at 0,0, or when it was located approximately (cell towers, Wi-Fi).
+     * Such a position neither leaves a geofence, nor moves the vehicle, nor adds distance, and the next position with
+     * a fix measures from the last one that had one. With a trip open it can still close it, standing at the last
+     * fix. Set to false to restore the stock behaviour.
      */
     public static final ConfigKey<Boolean> EVENT_IGNORE_INVALID_POSITIONS = new BooleanConfigKey(
             "event.ignoreInvalidPositions",

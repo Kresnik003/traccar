@@ -17,6 +17,7 @@ package org.traccar.handler;
 
 import org.traccar.config.Keys;
 import org.traccar.helper.model.AttributeUtil;
+import org.traccar.helper.model.Fijacion;
 import org.traccar.helper.model.GeofenceUtil;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
@@ -42,7 +43,11 @@ public class GeofenceHandler extends BasePositionHandler {
         // tracker that heartbeats without a fix would leave and re-enter its geofence
         // several times a day. Carry over the last known geofences instead, the same
         // way DistanceHandler and OutdatedHandler carry over the last known fix.
-        if (!position.getValid()
+        //
+        // "Without a fix" is Fijacion.tiene(): the valid flag alone let through 0,0
+        // marked valid and cell tower estimates, which are off by enough to leave
+        // a garage geofence.
+        if (!Fijacion.tiene(position)
                 && AttributeUtil.lookup(
                         cacheManager, Keys.EVENT_IGNORE_INVALID_POSITIONS, position.getDeviceId())) {
             Position last = cacheManager.getPosition(position.getDeviceId());
