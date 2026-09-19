@@ -24,6 +24,7 @@ import org.traccar.broadcast.BroadcastService;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.model.AttributeUtil;
+import org.traccar.helper.model.Fijacion;
 import org.traccar.helper.model.PositionUtil;
 import org.traccar.model.Attribute;
 import org.traccar.model.BaseModel;
@@ -199,6 +200,14 @@ public class CacheManager implements BroadcastInterface {
             if (!appendPosition(positions, position)) {
                 return oldValue;
             }
+            // THE LAST FIX STAYS. Pruning goes by time, and a parked device that
+            // heartbeats without a fix pushed its last real position out within
+            // minutes. After that DistanceHandler had nothing to measure the next
+            // fix from, and the trip logic, which walks only positions with a fix,
+            // had an empty history: no "stopped" for a bike that lost the fix
+            // entering a garage, and no "moving" when it left the next day.
+            Position lastFix = AttributeUtil.lookup(this, Keys.EVENT_IGNORE_INVALID_POSITIONS, key)
+                    ? Fijacion.ultima(positions) : null;
             if (config.getBoolean(Keys.REPORT_TRIP_NEW_LOGIC)) {
                 long minDuration = AttributeUtil.lookup(
                         this, Keys.REPORT_TRIP_MIN_DURATION, key) * 1000;
@@ -216,6 +225,11 @@ public class CacheManager implements BroadcastInterface {
                 while (positions.size() > 1) {
                     positions.poll();
                 }
+            }
+            if (lastFix != null && !positions.contains(lastFix)) {
+                // Everything pruned is older than everything kept, so the front
+                // is where it belongs in time.
+                positions.addFirst(lastFix);
             }
             return oldValue;
         });

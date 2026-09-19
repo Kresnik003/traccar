@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.model.AttributeUtil;
+import org.traccar.helper.model.Fijacion;
 import org.traccar.model.Device;
 import org.traccar.model.Position;
 import org.traccar.reports.common.TripsConfig;
@@ -64,13 +65,20 @@ public class MotionEventHandler extends BasePositionEventHandler {
 
         var attributeProvider = new AttributeUtil.CacheProvider(cacheManager, deviceId);
 
-        // A position without a fix carries no information about movement: it has no
-        // coordinates to measure against, and the new trip logic measures distance,
-        // not speed. Feeding it zero coordinates reads as a jump of thousands of
-        // kilometres, which opens a trip that a later heartbeat then closes, so a
-        // parked vehicle reports moving and stopped without ever leaving the garage.
-        if (!position.getValid()
-                && AttributeUtil.lookup(attributeProvider, Keys.EVENT_IGNORE_INVALID_POSITIONS)) {
+        // A position without a fix carries no information about movement: its
+        // coordinates are 0,0, a cell tower estimate, or nothing at all. It must not
+        // open a trip. What it still says is that TIME PASSED, and that is enough
+        // to close one: see stillThere().
+        //
+        // (The comment that stood here until 2026-09-19 said that skipping these
+        // positions kept a heartbeat at 0,0 from opening a trip. It did not: the
+        // next position with a fix carried the 4,909 km leg in its distance,
+        // measured by DistanceHandler against the heartbeat, and the stop gap rule
+        // raised "moving" and "stopped" from it. DistanceHandler no longer measures
+        // from a position without a fix.)
+        boolean noFix = !Fijacion.tiene(position)
+                && AttributeUtil.lookup(attributeProvider, Keys.EVENT_IGNORE_INVALID_POSITIONS);
+        if (noFix && !(config.getBoolean(Keys.REPORT_TRIP_NEW_LOGIC) && device.getMotionStreak())) {
             return;
         }
 
@@ -78,21 +86,66 @@ public class MotionEventHandler extends BasePositionEventHandler {
             double minDistance = AttributeUtil.lookup(attributeProvider, Keys.REPORT_TRIP_MIN_DISTANCE);
             long minDuration = AttributeUtil.lookup(attributeProvider, Keys.REPORT_TRIP_MIN_DURATION) * 1000;
             long stopGap = AttributeUtil.lookup(attributeProvider, Keys.REPORT_TRIP_STOP_GAP) * 1000;
-            handleNewLogic(device, position, minDistance, minDuration, stopGap, callback);
+            Position motionPosition = position;
+            if (noFix) {
+                motionPosition = stillThere(position, deviceId);
+                if (motionPosition == null) {
+                    return;
+                }
+            }
+            handleNewLogic(device, motionPosition, minDistance, minDuration, stopGap, callback);
         } else {
             TripsConfig tripsConfig = new TripsConfig(attributeProvider);
             handleOldLogic(device, position, lastPosition, tripsConfig, callback);
         }
     }
 
+    /**
+     * A position without a fix, placed where the last fix was.
+     *
+     * A vehicle that loses the fix before its stop is detected - the typical case
+     * is riding into an underground garage - sends only positions without a fix
+     * from then on. Skipping them all left the trip open all night: no "stopped",
+     * and, since the trip was still open, no "moving" when the bike left the next
+     * day. Stock Traccar got this right by accident with trackers that repeat the
+     * last coordinates when they lose the fix: the vehicle looks still, and it
+     * stops. This does the same on purpose: the heartbeat stands at the last fix,
+     * with no distance, and the stop is decided on time as usual.
+     *
+     * It can only close a trip, never open one, and only when the new trip logic
+     * has a trip open. A long tunnel reads the same as a garage; that is the
+     * price, and it is the stock behaviour for trackers that repeat coordinates.
+     *
+     * @return null if there is no fix to stand on
+     */
+    private Position stillThere(Position position, long deviceId) {
+        Position lastFix = Fijacion.ultima(cacheManager.getPositions(deviceId));
+        if (lastFix == null) {
+            return null;
+        }
+        Position still = new Position(position.getProtocol());
+        // The event points at the last fix, which is where the vehicle stopped;
+        // the heartbeat's own row holds no place. The time is the heartbeat's.
+        still.setId(lastFix.getId());
+        still.setDeviceId(deviceId);
+        still.setServerTime(position.getServerTime());
+        still.setDeviceTime(position.getDeviceTime());
+        still.setFixTime(position.getFixTime());
+        still.setValid(true);
+        still.setLatitude(lastFix.getLatitude());
+        still.setLongitude(lastFix.getLongitude());
+        still.set(Position.KEY_DISTANCE, 0.0);
+        return still;
+    }
+
     private void handleNewLogic(
             Device device, Position position, double minDistance, long minDuration, long stopGap, Callback callback) {
         NewMotionState state = new NewMotionState();
         state.setMotionStreak(device.getMotionStreak());
-        // Same reason as above, for the history the processor walks: one cached
-        // position without a fix among valid ones is a false 5.000 km leg.
+        // The history the processor walks holds only positions with a fix: one
+        // without, among real ones, is a leg of thousands of kilometres.
         state.setPositions(cacheManager.getPositions(device.getId()).stream()
-                .filter(Position::getValid)
+                .filter(Fijacion::tiene)
                 .collect(Collectors.toCollection(ArrayDeque::new)));
         if (device.hasAttribute("motionTime")) {
             // TODO temporary migration path
