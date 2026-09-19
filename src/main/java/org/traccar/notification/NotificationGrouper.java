@@ -65,13 +65,16 @@ public class NotificationGrouper {
     private final NotificationWindow<Held> window;
     private final NotificationFormatter formatter;
     private final CacheManager cacheManager;
+    private final ColaAvisos colaAvisos;
 
     @Inject
-    public NotificationGrouper(Config config, NotificationFormatter formatter, CacheManager cacheManager) {
+    public NotificationGrouper(
+            Config config, NotificationFormatter formatter, CacheManager cacheManager, ColaAvisos colaAvisos) {
         this.windowMillis = TimeUnit.SECONDS.toMillis(config.getLong(Keys.NOTIFICATOR_GROUP_WINDOW));
         this.window = new NotificationWindow<>(windowMillis);
         this.formatter = formatter;
         this.cacheManager = cacheManager;
+        this.colaAvisos = colaAvisos;
         if (windowMillis > 0) {
             ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
                 Thread thread = new Thread(runnable, "notification-grouper");
@@ -111,7 +114,11 @@ public class NotificationGrouper {
     }
 
     private void flush() {
-        for (var summary : window.flush(System.currentTimeMillis())) {
+        flush(System.currentTimeMillis());
+    }
+
+    void flush(long now) {
+        for (var summary : window.flush(now)) {
             Held held = summary.latest();
             try {
                 TimeZone timeZone = UserUtil.getTimezone(cacheManager.getServer(), held.user());
@@ -147,13 +154,23 @@ public class NotificationGrouper {
                 }
                 sent.exceptionally(throwable -> {
                     LOGGER.warn("Grouped notification failed", throwable);
+                    // A summary is a notification too. It used to be logged and
+                    // lost here while a single alert that failed was queued.
+                    queue(held, throwable);
                     return null;
                 });
                 LOGGER.info("Grouped notification: {} held for user {} on {}",
                         summary.count(), held.user().getId(), held.type());
             } catch (RuntimeException e) {
                 LOGGER.warn("Grouped notification failed", e);
+                queue(held, e);
             }
+        }
+    }
+
+    private void queue(Held held, Throwable cause) {
+        if (colaAvisos != null) {
+            colaAvisos.encolar(held.notification(), held.user(), held.event(), held.position(), held.type(), cause);
         }
     }
 

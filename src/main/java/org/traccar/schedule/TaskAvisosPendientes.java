@@ -29,12 +29,15 @@ import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
+import org.traccar.storage.query.Order;
 import org.traccar.storage.query.Request;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -71,6 +74,7 @@ public class TaskAvisosPendientes extends SingleScheduleTask {
     private final int reintentos;
     private final long esperaBase;
     private final long esperaTope;
+    private final Set<Long> bloqueados = new HashSet<>();
 
     @Inject
     public TaskAvisosPendientes(
@@ -82,6 +86,13 @@ public class TaskAvisosPendientes extends SingleScheduleTask {
         reintentos = config.getInteger(Keys.NOTIFICATOR_RETRY_ATTEMPTS);
         esperaBase = config.getLong(Keys.NOTIFICATOR_RETRY_DELAY);
         esperaTope = config.getLong(Keys.NOTIFICATOR_RETRY_MAX_DELAY);
+        // Read the same way NotificationManager reads it.
+        String bloqueadosTexto = config.getString(Keys.NOTIFICATION_BLOCK_USERS);
+        if (bloqueadosTexto != null) {
+            for (String id : bloqueadosTexto.split(",")) {
+                bloqueados.add(Long.parseLong(id));
+            }
+        }
     }
 
     @Override
@@ -91,18 +102,23 @@ public class TaskAvisosPendientes extends SingleScheduleTask {
         }
     }
 
+    private boolean sigueQueriendolo(User user, Notification notification, String notificator) {
+        return !user.getDisabled()
+                && !bloqueados.contains(user.getId())
+                && notification.getNotificatorsTypes().contains(notificator);
+    }
+
     @Override
     public void run() {
         try {
+            // Only one batch is read, oldest due first. Reading every due row and
+            // stopping at the batch size in Java loaded the whole backlog of a day
+            // long outage every minute to use 25 of them.
             List<AvisoPendiente> vencidos = storage.getObjects(AvisoPendiente.class, new Request(
                     new Columns.All(),
-                    new Condition.Compare("proximo", "<=", new Date())));
-            int hechos = 0;
+                    new Condition.Compare("proximo", "<=", new Date()),
+                    new Order("proximo", false, POR_TANDA)));
             for (AvisoPendiente pendiente : vencidos) {
-                if (hechos >= POR_TANDA) {
-                    break;
-                }
-                hechos++;
                 intentar(pendiente);
             }
         } catch (Exception e) {
@@ -123,6 +139,15 @@ public class TaskAvisosPendientes extends SingleScheduleTask {
             if (event == null || user == null || notification == null) {
                 // The event, the user or the rule is gone. There is nothing left
                 // to deliver, and keeping the row would retry it forever.
+                borrar(pendiente);
+                return;
+            }
+            if (!sigueQueriendolo(user, notification, pendiente.getNotificator())) {
+                // The same checks NotificationManager makes before the first send.
+                // A member disabled, or taken off a channel, while an alert waited
+                // in the queue must not get it anyway because it happened to wait.
+                LOGGER.info("Dropping queued notification {}: user {} no longer receives it",
+                        pendiente.getId(), user.getId());
                 borrar(pendiente);
                 return;
             }
@@ -164,7 +189,7 @@ public class TaskAvisosPendientes extends SingleScheduleTask {
     private void aplazar(AvisoPendiente pendiente, Throwable causa) {
         try {
             int intentos = pendiente.getIntentos() + 1;
-            if (!EsperaReintento.quedanIntentos(intentos, reintentos)) {
+            if (!EsperaReintento.quedanReintentos(intentos, reintentos)) {
                 LOGGER.warn("Giving up on notification {} after {} attempts: {}",
                         pendiente.getId(), intentos, EsperaReintento.motivo(causa, ERROR_MAXIMO));
                 borrar(pendiente);
