@@ -15,6 +15,8 @@
  */
 package org.traccar.helper;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -80,6 +82,48 @@ public final class DiagnosticReport {
             return "(puesta)";
         }
         return redact(value);
+    }
+
+    /**
+     * Whether a patch marker is in the running jar.
+     *
+     * A marker is a class name, or "class#member" for a patch that only added a
+     * method or a field to a class that already existed. HealthEvaluator is the
+     * case that needed it: the class arrived with 0005, and 0020 only added
+     * quota() to it, so asking for the class said "yes" to 0020 on any jar that
+     * had 0005 - it could not say anything else.
+     */
+    public static boolean present(String marker, ClassLoader loader) {
+        int hash = marker.indexOf('#');
+        String className = hash < 0 ? marker : marker.substring(0, hash);
+        try {
+            Class<?> clazz = Class.forName(className, false, loader);
+            if (hash < 0) {
+                return true;
+            }
+            String member = marker.substring(hash + 1);
+            for (Method method : clazz.getDeclaredMethods()) {
+                if (method.getName().equals(member)) {
+                    return true;
+                }
+            }
+            for (Field field : clazz.getDeclaredFields()) {
+                if (field.getName().equals(member)) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (ClassNotFoundException | LinkageError e) {
+            return false;
+        }
+    }
+
+    /** A marker as the report names it: HealthEvaluator, or HealthEvaluator.quota. */
+    public static String markerName(String marker) {
+        int hash = marker.indexOf('#');
+        String className = hash < 0 ? marker : marker.substring(0, hash);
+        String name = className.substring(className.lastIndexOf('.') + 1);
+        return hash < 0 ? name : name + "." + marker.substring(hash + 1);
     }
 
     public static void section(StringBuilder out, String title, List<String> lines) {

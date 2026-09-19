@@ -60,7 +60,12 @@ public class DiagnosticoResource extends BaseResource {
     private static final int LOG_TAIL_BYTES = 2 * 1024 * 1024;
     private static final int LOG_PROBLEMS = 60;
 
-    private static final String[] PATCH_CLASSES = {
+    /**
+     * One marker per patch: a class it added, or "class#member" when it only
+     * added a member to a class that already existed. See
+     * DiagnosticReport.present().
+     */
+    static final String[] PATCH_CLASSES = {
         "org.traccar.handler.network.ConnectionLimitHandler",
         "org.traccar.api.resource.RutaResource",
         "org.traccar.api.resource.QuedadaResource",
@@ -78,7 +83,9 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.api.resource.ConsentimientoResource",
         "org.traccar.notification.NotificationGrouper",
         "org.traccar.helper.ResetCode",
-        "org.traccar.helper.HealthEvaluator",
+        // 0020. HealthEvaluator es del 0005: la clase sola decia "si" en cualquier
+        // jar que tuviera el 0005. El 0020 solo le anadio quota().
+        "org.traccar.helper.HealthEvaluator#quota",
         "org.traccar.reports.common.ReportBudget",
         "org.traccar.api.resource.ValoracionResource",
         "org.traccar.model.AvisoPendiente",
@@ -178,15 +185,9 @@ public class DiagnosticoResource extends BaseResource {
                 "Disco libre " + disk.getUsableSpace() / 1048576 + " de " + disk.getTotalSpace() / 1048576 + " MB"));
 
         List<String> patches = new ArrayList<>();
-        for (String name : PATCH_CLASSES) {
-            boolean present;
-            try {
-                Class.forName(name, false, getClass().getClassLoader());
-                present = true;
-            } catch (ClassNotFoundException e) {
-                present = false;
-            }
-            patches.add((present ? "sí  " : "NO  ") + name.substring(name.lastIndexOf('.') + 1));
+        for (String marker : PATCH_CLASSES) {
+            boolean present = DiagnosticReport.present(marker, getClass().getClassLoader());
+            patches.add((present ? "sí  " : "NO  ") + DiagnosticReport.markerName(marker));
         }
         DiagnosticReport.section(out, "Parches de Nordés en este jar", patches);
 

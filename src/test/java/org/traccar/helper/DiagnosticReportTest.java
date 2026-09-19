@@ -65,4 +65,20 @@ public class DiagnosticReportTest {
         assertTrue(DiagnosticReport.configValue("protocols.enable", "teltonika,osmand").contains("osmand"));
     }
 
+    /**
+     * A marker has to be able to say no. HealthEvaluator is from 0005 and 0020
+     * only added quota() to it: the class alone said "yes" to 0020 on any jar.
+     */
+    @Test
+    public void testPatchMarkerChecksTheMember() {
+        ClassLoader loader = getClass().getClassLoader();
+        assertTrue(DiagnosticReport.present("org.traccar.helper.HealthEvaluator", loader));
+        assertTrue(DiagnosticReport.present("org.traccar.helper.HealthEvaluator#quota", loader));
+        assertFalse(DiagnosticReport.present("org.traccar.helper.HealthEvaluator#noSuchMember", loader));
+        assertFalse(DiagnosticReport.present("org.traccar.helper.NoSuchClass", loader));
+        assertFalse(DiagnosticReport.present("org.traccar.helper.NoSuchClass#quota", loader));
+        assertEquals("HealthEvaluator.quota", DiagnosticReport.markerName("org.traccar.helper.HealthEvaluator#quota"));
+        assertEquals("FitWriter", DiagnosticReport.markerName("org.traccar.helper.FitWriter"));
+    }
+
 }
