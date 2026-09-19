@@ -23,7 +23,10 @@ import jakarta.inject.Singleton;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.Response;
 import org.glassfish.jersey.client.ClientProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.WebHelper;
@@ -38,6 +41,8 @@ import java.util.concurrent.CompletableFuture;
 
 @Singleton
 public class NotificatorTelegram extends Notificator {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(NotificatorTelegram.class);
 
     private final Client client;
 
@@ -126,14 +131,38 @@ public class NotificatorTelegram extends Notificator {
                 ? user.getBoolean(Keys.NOTIFICATOR_TELEGRAM_SEND_LOCATION.getKey())
                 : sendLocation;
 
-        return WebHelper.post(client.target(urlSendText).request(), Entity.json(message), response -> {})
+        return WebHelper.post(client.target(urlSendText).request(), Entity.json(message),
+                        NotificatorTelegram::checkAnswer)
                 .thenCompose(v -> {
                     if (sendUserLocation && position != null) {
+                        // THE ALERT IS THE TEXT, and it has already been delivered. A
+                        // location refused after it must not fail the whole send: the
+                        // retry queue would then send the text a second time.
                         return WebHelper.post(client.target(urlSendLocation).request(),
-                                Entity.json(createLocationMessage(message.chatId, position)), response -> {});
+                                Entity.json(createLocationMessage(message.chatId, position)),
+                                NotificatorTelegram::checkAnswer)
+                                .exceptionally(throwable -> {
+                                    LOGGER.warn("Telegram location failed after the text was delivered", throwable);
+                                    return null;
+                                });
                     }
                     return CompletableFuture.completedFuture(null);
                 });
+    }
+
+    /**
+     * Telegram answers every request, and a refusal is still an answer: 429 when
+     * the bot sends too fast, 5xx when the API is having a bad time, 403 when the
+     * member has blocked the bot. The HTTP client only fails the call when there
+     * is no answer at all, so until this check a refused alert was reported as
+     * delivered: never queued for a retry, and a queued one that was refused
+     * again was deleted from the queue as sent.
+     */
+    static void checkAnswer(Response response) {
+        int status = response.getStatus();
+        if (status < 200 || status >= 300) {
+            throw new IllegalStateException("Telegram answered HTTP " + status);
+        }
     }
 
 }
