@@ -123,6 +123,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.helper.LogJson",
         // 0048, el pool de conexiones en las métricas.
         "org.traccar.session.FleetMetrics$Pool",
+        // 0049, recargar la caché sin reiniciar.
+        "org.traccar.session.cache.CacheManager#reload",
     };
 
     private static final String[] CONFIG_KEYS = {

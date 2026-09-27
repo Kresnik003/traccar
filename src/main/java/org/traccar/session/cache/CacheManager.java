@@ -52,6 +52,7 @@ import jakarta.inject.Singleton;
 import java.util.Date;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -71,7 +72,9 @@ public class CacheManager implements BroadcastInterface {
     private final Storage storage;
     private final BroadcastService broadcastService;
 
-    private final CacheGraph graph = new CacheGraph();
+    private volatile CacheGraph graph = new CacheGraph();
+    // While reload() builds a new graph, links go there; readers keep the old one.
+    private CacheGraph building;
 
     private volatile Server server;
     private final Map<Long, ConcurrentLinkedDeque<Position>> devicePositions = new ConcurrentHashMap<>();
@@ -345,15 +348,57 @@ public class CacheManager implements BroadcastInterface {
             if (cachedDeviceLink) {
                 addDevice(toId, fromId);
             }
-            if (!graph.addLink(fromClass, fromId, toClass, toId, createObjectSupplier(toClass, toId))) {
-                initializeCache(graph.getObject(toClass, toId));
+            if (!writing().addLink(fromClass, fromId, toClass, toId, createObjectSupplier(toClass, toId))) {
+                initializeCache(writing().getObject(toClass, toId));
             }
         } else {
-            graph.removeLink(fromClass, fromId, toClass, toId);
+            writing().removeLink(fromClass, fromId, toClass, toId);
             if (cachedDeviceLink) {
                 removeDevice(toId, fromId);
             }
         }
+    }
+
+    private CacheGraph writing() {
+        return building != null ? building : graph;
+    }
+
+    /**
+     * Reads again from the database everything cached for the connected
+     * devices (improvement 38): computed attributes, notifications, geofences,
+     * groups, calendars, users, the server. A change made with SQL used to
+     * need a restart, and every restart is 35 s without positions.
+     *
+     * The new graph is built aside and swapped in at the end, so a position
+     * processed meanwhile sees the old cache whole, never a half-built one
+     * without its attributes or notifications. The recent positions of each
+     * device are kept.
+     *
+     * @return how many devices were reloaded
+     */
+    public synchronized int reload() throws Exception {
+        Server newServer = storage.getObject(Server.class, new Request(new Columns.All()));
+        List<Long> deviceIds = deviceReferences.entrySet().stream()
+                .filter(entry -> !entry.getValue().isEmpty())
+                .map(Map.Entry::getKey)
+                .toList();
+        building = new CacheGraph();
+        try {
+            for (long deviceId : deviceIds) {
+                Device device = storage.getObject(Device.class, new Request(
+                        new Columns.All(), new Condition.Equals("id", deviceId)));
+                if (device != null) {
+                    building.addObject(device);
+                    initializeCache(device);
+                }
+            }
+            graph = building;
+            server = newServer;
+        } finally {
+            building = null;
+        }
+        LOGGER.info("Cache reloaded for {} devices", deviceIds.size());
+        return deviceIds.size();
     }
 
     private void initializeCache(BaseModel object) throws Exception {
