@@ -99,6 +99,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.api.resource.EnlacesCompartidos",
         // 0041, un accidente es un aviso.
         "org.traccar.notification.VentanaAccidente",
+        // 0042, la gravedad en el evento.
+        "org.traccar.helper.Gravedad",
     };
 
     private static final String[] CONFIG_KEYS = {

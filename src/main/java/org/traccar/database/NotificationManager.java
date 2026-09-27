@@ -24,6 +24,7 @@ import org.traccar.forward.EventData;
 import org.traccar.forward.EventForwarder;
 import org.traccar.geocoder.Geocoder;
 import org.traccar.helper.DateUtil;
+import org.traccar.helper.Gravedad;
 import org.traccar.helper.SilencioAvisos;
 import org.traccar.model.Calendar;
 import org.traccar.model.Device;
@@ -93,6 +94,14 @@ public class NotificationManager {
     }
 
     private void updateEvent(Event event, Position position) {
+        // The severity travels with the event (improvement 11), so reports and
+        // filters can use it instead of every client working it out.
+        if (Event.TYPE_ALARM.equals(event.getType())) {
+            String gravedad = Gravedad.de(event.getString(Position.KEY_ALARM));
+            if (gravedad != null) {
+                event.set(Gravedad.ATRIBUTO, gravedad);
+            }
+        }
         try {
             event.setId(storage.addObject(event, new Request(new Columns.Exclude("id"))));
         } catch (StorageException error) {
