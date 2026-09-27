@@ -1574,6 +1574,14 @@ public final class Keys {
             List.of(KeyType.DEVICE));
 
     /**
+     * Webhook destinations that may be internal or plain http (improvement 25), as host:port separated by commas.
+     * Everything else must be https to a public address.
+     */
+    public static final ConfigKey<String> NOTIFICATOR_WEBHOOK_PERMITIDOS = new StringConfigKey(
+            "notificator.webhook.permitidos",
+            List.of(KeyType.CONFIG));
+
+    /**
      * Enabled notification options. Comma-separated string is expected.
      * Example: web,mail,sms
      */

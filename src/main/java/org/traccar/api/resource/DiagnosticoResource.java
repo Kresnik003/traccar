@@ -125,6 +125,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.session.FleetMetrics$Pool",
         // 0049, recargar la caché sin reiniciar.
         "org.traccar.session.cache.CacheManager#reload",
+        // 0050, webhooks salientes.
+        "org.traccar.notificators.NotificatorWebhook",
     };
 
     private static final String[] CONFIG_KEYS = {
