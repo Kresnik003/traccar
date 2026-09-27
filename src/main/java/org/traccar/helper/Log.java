@@ -124,9 +124,15 @@ public final class Log {
     public static class LogFormatter extends Formatter {
 
         private final boolean fullStackTraces;
+        private final boolean json;
 
         LogFormatter(boolean fullStackTraces) {
+            this(fullStackTraces, false);
+        }
+
+        LogFormatter(boolean fullStackTraces, boolean json) {
             this.fullStackTraces = fullStackTraces;
+            this.json = json;
         }
 
         private static String formatLevel(Level level) {
@@ -141,6 +147,20 @@ public final class Log {
 
         @Override
         public String format(LogRecord record) {
+            if (json) {
+                String error = null;
+                if (record.getThrown() != null) {
+                    if (fullStackTraces) {
+                        StringWriter stringWriter = new StringWriter();
+                        record.getThrown().printStackTrace(new PrintWriter(stringWriter));
+                        error = stringWriter.toString();
+                    } else {
+                        error = exceptionStack(record.getThrown());
+                    }
+                }
+                return LogJson.linea(record.getMillis(), formatLevel(record.getLevel()),
+                        record.getLoggerName(), record.getMessage(), error);
+            }
             StringBuilder message = new StringBuilder();
 
             if (record.getMessage() != null) {
@@ -178,7 +198,7 @@ public final class Log {
             }
             path = new File(logsPath, "tracker-server.log").getPath();
         }
-        setupLogger(path == null, path, Level.WARNING.getName(), false, true, "DAY");
+        setupLogger(path == null, path, Level.WARNING.getName(), false, true, "DAY", false);
     }
 
     public static void setupLogger(Config config) {
@@ -188,12 +208,13 @@ public final class Log {
                 config.getString(Keys.LOGGER_LEVEL),
                 config.getBoolean(Keys.LOGGER_FULL_STACK_TRACES),
                 config.getBoolean(Keys.LOGGER_ROTATE),
-                config.getString(Keys.LOGGER_ROTATE_INTERVAL));
+                config.getString(Keys.LOGGER_ROTATE_INTERVAL),
+                config.getBoolean(Keys.LOGGER_JSON));
     }
 
     private static void setupLogger(
             boolean console, String file, String levelString,
-            boolean fullStackTraces, boolean rotate, String rotateInterval) {
+            boolean fullStackTraces, boolean rotate, String rotateInterval, boolean json) {
 
         Logger rootLogger = Logger.getLogger("");
         for (Handler handler : rootLogger.getHandlers()) {
@@ -207,7 +228,7 @@ public final class Log {
             handler = new RollingFileHandler(file, rotate, rotateInterval);
         }
 
-        handler.setFormatter(new LogFormatter(fullStackTraces));
+        handler.setFormatter(new LogFormatter(fullStackTraces, json));
 
         Level level = Level.parse(levelString.toUpperCase(Locale.ROOT));
         rootLogger.setLevel(level);

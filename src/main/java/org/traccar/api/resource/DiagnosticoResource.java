@@ -110,6 +110,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.model.PoliticaContrasenas",
         // 0046, límite de informes por usuario.
         "org.traccar.api.LimiteInformes",
+        // 0047, el registro en JSON.
+        "org.traccar.helper.LogJson",
     };
 
     private static final String[] CONFIG_KEYS = {
