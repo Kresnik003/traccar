@@ -57,6 +57,7 @@ public class LoginService {
     private final boolean forceLdap;
     private final boolean forceOpenId;
     private final boolean allowOpenIdRegistration;
+    private final BloqueoCuentas bloqueoCuentas = new BloqueoCuentas();
 
     @Inject
     public LoginService(
@@ -126,6 +127,30 @@ public class LoginService {
         }
 
         email = email.trim().toLowerCase(Locale.ROOT);
+        long ahora = System.currentTimeMillis();
+        long bloqueada = bloqueoCuentas.segundosBloqueada(email, ahora);
+        if (bloqueada > 0) {
+            throw new CuentaBloqueadaException(bloqueada);
+        }
+        try {
+            LoginResult resultado = loginConContrasena(email, password, code);
+            if (resultado != null) {
+                bloqueoCuentas.acierto(email);
+            } else {
+                bloqueoCuentas.fallo(email, ahora);
+            }
+            return resultado;
+        } catch (CodeRequiredException e) {
+            throw e;
+        } catch (SecurityException e) {
+            if ("User authorization failed".equals(e.getMessage())) {
+                bloqueoCuentas.fallo(email, ahora);
+            }
+            throw e;
+        }
+    }
+
+    private LoginResult loginConContrasena(String email, String password, Integer code) throws StorageException {
         User user = storage.getObject(User.class, new Request(
                 new Columns.All(),
                 new Condition.Or(

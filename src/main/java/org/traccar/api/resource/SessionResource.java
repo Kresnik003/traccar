@@ -18,6 +18,7 @@ package org.traccar.api.resource;
 import com.nimbusds.oauth2.sdk.ParseException;
 import org.traccar.api.BaseResource;
 import org.traccar.api.security.CodeRequiredException;
+import org.traccar.api.security.CuentaBloqueadaException;
 import org.traccar.api.security.LoginResult;
 import org.traccar.api.security.LoginService;
 import org.traccar.api.signature.TokenManager;
@@ -129,6 +130,12 @@ public class SessionResource extends BaseResource {
                     .header("WWW-Authenticate", "TOTP")
                     .build();
             throw new WebApplicationException(response);
+        } catch (CuentaBloqueadaException e) {
+            actionLogger.failedLogin(request);
+            throw new WebApplicationException(Response
+                    .status(Response.Status.TOO_MANY_REQUESTS)
+                    .header("Retry-After", e.getSegundos())
+                    .build());
         }
         if (loginResult != null) {
             User user = loginResult.getUser();
