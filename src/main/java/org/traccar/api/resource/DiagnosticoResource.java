@@ -103,6 +103,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.helper.Gravedad",
         // 0043, la última tensión para el contexto de las alarmas.
         "org.traccar.handler.TensionReciente",
+        // 0044, la caché de direcciones que sobrevive a un reinicio.
+        "org.traccar.geocoder.CacheDirecciones",
     };
 
     private static final String[] CONFIG_KEYS = {
@@ -127,7 +129,7 @@ public class DiagnosticoResource extends BaseResource {
 
     private static final String[] TABLES = {
         "tc_positions", "tc_events", "tc_devices", "tc_users", "tc_groups", "nx_accesos", "nx_quedadas", "nx_rutas",
-        "nx_avisos",
+        "nx_avisos", "nx_direcciones",
     };
 
     @Inject
