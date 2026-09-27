@@ -91,9 +91,21 @@ public class NotificationGrouper {
                 + event.getType() + ":" + event.getString(Position.KEY_ALARM, "") + ":" + event.getGeofenceId();
     }
 
+    private final VentanaAccidente accidentes = new VentanaAccidente();
+
     public CompletableFuture<Void> send(
             String type, Notificator notificator, Notification notification, User user, Event event,
             Position position) {
+        // One accident, one notification (improvement 9): the pieces of the same
+        // crash that arrive later are absorbed, not summarised.
+        if (VentanaAccidente.esAccidente(event)) {
+            if (accidentes.enviar(user.getId(), type, event.getDeviceId(), System.currentTimeMillis())) {
+                return notificator.sendAsync(notification, user, event, position);
+            }
+            LOGGER.info("Accident of device {} already notified to user {} on {}, absorbed",
+                    event.getDeviceId(), user.getId(), type);
+            return CompletableFuture.completedFuture(null);
+        }
         if (windowMillis <= 0
                 || window.offer(key(type, notification, user, event), System.currentTimeMillis(),
                         new Held(type, notificator, notification, user, event, position))) {

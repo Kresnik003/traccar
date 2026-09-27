@@ -97,6 +97,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.helper.SilencioAvisos",
         // 0040, enlaces compartidos revocables.
         "org.traccar.api.resource.EnlacesCompartidos",
+        // 0041, un accidente es un aviso.
+        "org.traccar.notification.VentanaAccidente",
     };
 
     private static final String[] CONFIG_KEYS = {
