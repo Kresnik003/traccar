@@ -1574,6 +1574,22 @@ public final class Keys {
             List.of(KeyType.DEVICE));
 
     /**
+     * FOTA WEB API token (improvement 6). With it, a device's firmware, configuration and task queue in Teltonika's
+     * portal show in its card. Read only: the server never writes to FOTA WEB.
+     */
+    public static final ConfigKey<String> FOTA_TOKEN = new StringConfigKey(
+            "fota.token",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * FOTA WEB API address.
+     */
+    public static final ConfigKey<String> FOTA_URL = new StringConfigKey(
+            "fota.url",
+            List.of(KeyType.CONFIG),
+            "https://api.teltonika.lt");
+
+    /**
      * Webhook destinations that may be internal or plain http (improvement 25), as host:port separated by commas.
      * Everything else must be https to a public address.
      */

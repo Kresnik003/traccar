@@ -127,6 +127,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.session.cache.CacheManager#reload",
         // 0050, webhooks salientes.
         "org.traccar.notificators.NotificatorWebhook",
+        // 0051, el estado de FOTA WEB en la ficha.
+        "org.traccar.helper.ClienteFota",
     };
 
     private static final String[] CONFIG_KEYS = {
