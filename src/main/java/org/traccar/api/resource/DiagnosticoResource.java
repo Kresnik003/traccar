@@ -95,6 +95,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.api.resource.AvisoResource",
         // 0039, silenciar un equipo.
         "org.traccar.helper.SilencioAvisos",
+        // 0040, enlaces compartidos revocables.
+        "org.traccar.api.resource.EnlacesCompartidos",
     };
 
     private static final String[] CONFIG_KEYS = {

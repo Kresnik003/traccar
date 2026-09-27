@@ -35,9 +35,7 @@ import jakarta.ws.rs.FormParam;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.Date;
@@ -96,8 +94,14 @@ public class ShareResource extends BaseResource {
             share.setId(storage.addObject(share, new Request(new Columns.Exclude("id"))));
 
             storage.addPermission(new Permission(User.class, share.getId(), clazz, id));
-        } else {
-            throw new WebApplicationException(Response.Status.CONFLICT);
+        } else if (EnlacesCompartidos.alargar(share.getExpirationTime(), expiration)) {
+            // The shared user is reused for every link of this device, but its
+            // expiration was only set by the first one: sharing «1 hour» and then
+            // «3 days» made the 3-day link die after an hour with the user.
+            share.setExpirationTime(expiration);
+            storage.updateObject(share, new Request(
+                    new Columns.Include("expirationTime"),
+                    new Condition.Equals("id", share.getId())));
         }
 
         return tokenManager.generateToken(share.getId(), expiration);
