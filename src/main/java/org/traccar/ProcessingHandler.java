@@ -24,6 +24,7 @@ import org.traccar.database.BufferingManager;
 import org.traccar.database.NotificationManager;
 import org.traccar.handler.BasePositionHandler;
 import org.traccar.handler.ComputedAttributesHandler;
+import org.traccar.handler.TensionReciente;
 import org.traccar.handler.CopyAttributesHandler;
 import org.traccar.handler.DatabaseHandler;
 import org.traccar.handler.DistanceHandler;
@@ -106,6 +107,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
                 HemisphereHandler.class,
                 MapMatcherHandler.class,
                 DistanceHandler.class,
+                TensionReciente.class,
                 FilterHandler.class,
                 GeofenceHandler.class,
                 GeocoderHandler.class,
