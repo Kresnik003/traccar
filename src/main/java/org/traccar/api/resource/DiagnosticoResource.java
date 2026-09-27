@@ -91,6 +91,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.model.AvisoPendiente",
         "org.traccar.api.resource.OrdenResource",
         "org.traccar.geocoder.GuardedGeocoder",
+        // 0038, la bandeja de avisos.
+        "org.traccar.api.resource.AvisoResource",
     };
 
     private static final String[] CONFIG_KEYS = {
@@ -115,6 +117,7 @@ public class DiagnosticoResource extends BaseResource {
 
     private static final String[] TABLES = {
         "tc_positions", "tc_events", "tc_devices", "tc_users", "tc_groups", "nx_accesos", "nx_quedadas", "nx_rutas",
+        "nx_avisos",
     };
 
     @Inject
