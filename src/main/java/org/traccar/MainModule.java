@@ -61,6 +61,7 @@ import org.traccar.geocoder.GeocodeXyzGeocoder;
 import org.traccar.geocoder.Geocoder;
 import org.traccar.geocoder.GisgraphyGeocoder;
 import org.traccar.geocoder.GoogleGeocoder;
+import org.traccar.geocoder.CacheDirecciones;
 import org.traccar.geocoder.GuardedGeocoder;
 import org.traccar.geocoder.HereGeocoder;
 import org.traccar.geocoder.LocationIqGeocoder;
@@ -112,6 +113,7 @@ import jakarta.annotation.Nullable;
 import jakarta.inject.Singleton;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.Properties;
@@ -226,7 +228,8 @@ public class MainModule extends AbstractModule {
 
     @Singleton
     @Provides
-    public static Geocoder provideGeocoder(Config config, Client client, StatisticsManager statisticsManager) {
+    public static Geocoder provideGeocoder(
+            Config config, Client client, StatisticsManager statisticsManager, DataSource dataSource) {
         if (config.getBoolean(Keys.GEOCODER_ENABLE)) {
             String type = config.getString(Keys.GEOCODER_TYPE);
             String url = config.getString(Keys.GEOCODER_URL);
@@ -265,7 +268,9 @@ public class MainModule extends AbstractModule {
             // Wrapped here and not at the call sites: the pipeline, the report builder and the
             // notification formatter all ask through this one object, and a guard written in one
             // of the three is a guard missing from the other two.
-            return new GuardedGeocoder(geocoder);
+            // And the persistent cache in front (improvement 19): a restart no longer
+            // sends Nominatim the same places again.
+            return new CacheDirecciones(dataSource, new GuardedGeocoder(geocoder));
         }
         return null;
     }
