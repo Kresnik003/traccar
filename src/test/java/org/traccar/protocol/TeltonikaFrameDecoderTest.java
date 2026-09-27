@@ -1,10 +1,10 @@
 package org.traccar.protocol;
 
 import org.junit.jupiter.api.Test;
+import org.traccar.ProtocolTest;
 
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import org.traccar.ProtocolTest;
 
 public class TeltonikaFrameDecoderTest extends ProtocolTest {
 
@@ -29,6 +29,7 @@ public class TeltonikaFrameDecoderTest extends ProtocolTest {
         // Se prueban EN HEXADECIMAL de lo que llego, no inventadas:
         //   "GET / HTTP..."  -> 474554
         //   "SSH-2.0-Go" + fin de linea  -> 5353482d
+        var decoder = inject(new TeltonikaFrameDecoder());
         for (String basura : new String[] {
                 "474554202f20485454502f312e310d0a486f73743a20",
                 "5353482d322e302d476f0d0a0000000000000000",
@@ -45,9 +46,8 @@ public class TeltonikaFrameDecoderTest extends ProtocolTest {
         // Y LO QUE SI ES UNA TRAMA SIGUE PASANDO. Esta es la parte que de
         // verdad importa: un filtro que tambien tire las buenas deja la moto
         // sin reportar y nadie lo ve hasta que hace falta el recorrido.
-        verifyFrame(
-                binary("000F333538343830303830353833333135"),
-                decoder.decode(null, null, binary("000F333538343830303830353833333135")));
+        verifyDecode(channel, binary("000F333538343830303830353833333135"),
+                binary("000F333538343830303830353833333135"));
 
         // Y UNA TRAMA AVL DE VERDAD, que es la que lleva las posiciones.
         //
@@ -56,9 +56,8 @@ public class TeltonikaFrameDecoderTest extends ProtocolTest {
         // no da ningun error -simplemente dejan de llegar posiciones- hasta el
         // dia que hace falta el recorrido. Empieza por el preambulo AVL, cuatro
         // ceros, no por la longitud del IMEI.
-        verifyFrame(
-                binary("000000000000003f8e0100000199155c620001000000000000000000000000000000010100010000000000000000000101010012006400000000000000c800000bb80fa00000010000566e"),
-                decoder.decode(null, null, binary("000000000000003f8e0100000199155c620001000000000000000000000000000000010100010000000000000000000101010012006400000000000000c800000bb80fa00000010000566e")));
+        verifyDecode(channel, binary("000000000000003f8e0100000199155c620001000000000000000000000000000000010100010000000000000000000101010012006400000000000000c800000bb80fa00000010000566e"),
+                binary("000000000000003f8e0100000199155c620001000000000000000000000000000000010100010000000000000000000101010012006400000000000000c800000bb80fa00000010000566e"));
 
     }
 
