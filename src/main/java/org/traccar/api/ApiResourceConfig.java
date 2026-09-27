@@ -34,6 +34,7 @@ public final class ApiResourceConfig {
                 ObjectMapperContextResolver.class,
                 DateParameterConverterProvider.class,
                 SecurityRequestFilter.class,
+                LimiteInformes.class,
                 ResourceErrorHandler.class,
                 StreamWriter.class);
         resourceConfig.packages(ServerResource.class.getPackage().getName());
