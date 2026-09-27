@@ -93,6 +93,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.geocoder.GuardedGeocoder",
         // 0038, la bandeja de avisos.
         "org.traccar.api.resource.AvisoResource",
+        // 0039, silenciar un equipo.
+        "org.traccar.helper.SilencioAvisos",
     };
 
     private static final String[] CONFIG_KEYS = {

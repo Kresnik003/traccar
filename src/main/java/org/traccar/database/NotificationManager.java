@@ -24,6 +24,7 @@ import org.traccar.forward.EventData;
 import org.traccar.forward.EventForwarder;
 import org.traccar.geocoder.Geocoder;
 import org.traccar.helper.DateUtil;
+import org.traccar.helper.SilencioAvisos;
 import org.traccar.model.Calendar;
 import org.traccar.model.Device;
 import org.traccar.model.Event;
@@ -141,6 +142,9 @@ public class NotificationManager {
                 event.getType(),
                 notifications.size());
 
+        // Silenced device (improvement 13): recorded in the inbox, not sent.
+        boolean callada = SilencioAvisos.callar(device, event, System.currentTimeMillis());
+
         if (!notifications.isEmpty()) {
             if (position != null && position.getAddress() == null && geocodeOnRequest && geocoder != null) {
                 position.setAddress(geocoder.getAddress(position.getLatitude(), position.getLongitude(), null));
@@ -156,6 +160,11 @@ public class NotificationManager {
                     // notification that Telegram refused was still meant for
                     // them, and it is exactly the one they must be able to find.
                     bandejaAvisos.anotar(user.getId(), event.getId());
+                    if (callada) {
+                        LOGGER.info("Device {} silenced, event {} not sent to user {}",
+                                device.getUniqueId(), event.getType(), user.getId());
+                        return;
+                    }
                     for (String notificator : notification.getNotificatorsTypes()) {
                         notificationGrouper.send(notificator, notificatorManager.getNotificator(notificator),
                                         notification, user, event, position)
