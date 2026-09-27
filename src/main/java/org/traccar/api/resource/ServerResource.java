@@ -57,6 +57,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.TimeZone;
 
 @Path("server")
@@ -175,6 +176,21 @@ public class ServerResource extends BaseResource {
     public String cache() throws StorageException {
         permissionsService.checkAdmin(getUserId());
         return cacheManager.toString();
+    }
+
+    /**
+     * Reads the cache again from the database (improvement 38): what a SQL
+     * script changed (computed attributes, notification rules, links) is seen
+     * without a restart.
+     */
+    @Path("recargar")
+    @POST
+    @Produces(MediaType.APPLICATION_JSON)
+    public Map<String, Long> reload() throws Exception {
+        permissionsService.checkAdmin(getUserId());
+        long start = System.currentTimeMillis();
+        int devices = cacheManager.reload();
+        return Map.of("equipos", (long) devices, "ms", System.currentTimeMillis() - start);
     }
 
     @Path("reboot")
