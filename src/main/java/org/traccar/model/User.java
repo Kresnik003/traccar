@@ -271,6 +271,7 @@ public class User extends ExtendedModel implements UserRestrictions, Disableable
     @QueryIgnore
     public void setPassword(String password) {
         if (password != null && !password.isEmpty()) {
+            PoliticaContrasenas.comprobar(password);
             Hashing.HashingResult hashingResult = Hashing.createHash(password);
             hashedPassword = hashingResult.getHash();
             salt = hashingResult.getSalt();

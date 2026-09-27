@@ -105,6 +105,11 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.handler.TensionReciente",
         // 0044, la caché de direcciones que sobrevive a un reinicio.
         "org.traccar.geocoder.CacheDirecciones",
+        // 0045, bloqueo por cuenta y política de contraseñas.
+        "org.traccar.api.security.BloqueoCuentas",
+        "org.traccar.model.PoliticaContrasenas",
+        // 0046, límite de informes por usuario.
+        "org.traccar.api.LimiteInformes",
     };
 
     private static final String[] CONFIG_KEYS = {
