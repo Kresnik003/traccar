@@ -70,6 +70,9 @@ public class NotificationManager {
     private ColaAvisos colaAvisos;
 
     @Inject
+    private BandejaAvisos bandejaAvisos;
+
+    @Inject
     public NotificationManager(
             Config config, Storage storage, CacheManager cacheManager, @Nullable EventForwarder eventForwarder,
             NotificatorManager notificatorManager, @Nullable Geocoder geocoder) {
@@ -149,6 +152,10 @@ public class NotificationManager {
                         LOGGER.info("User {} notification blocked", user.getId());
                         return;
                     }
+                    // Into the user's inbox before any channel is tried: a
+                    // notification that Telegram refused was still meant for
+                    // them, and it is exactly the one they must be able to find.
+                    bandejaAvisos.anotar(user.getId(), event.getId());
                     for (String notificator : notification.getNotificatorsTypes()) {
                         notificationGrouper.send(notificator, notificatorManager.getNotificator(notificator),
                                         notification, user, event, position)
