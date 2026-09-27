@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -45,6 +46,16 @@ public class FleetMetrics {
     private final Map<String, AtomicLong> unknownDevices = new ConcurrentHashMap<>();
     private final Map<String, AtomicLong> protocolsRejected = new ConcurrentHashMap<>();
     private volatile LongSupplier devicesConnected = () -> 0;
+
+    /** The database pool as the metrics see it (improvement 22). */
+    public record Pool(int activas, int libres, int total, int maximo, int esperando) {
+    }
+
+    private volatile Supplier<Pool> pool = () -> null;
+
+    public void setPool(Supplier<Pool> pool) {
+        this.pool = pool;
+    }
 
     public void positionStored() {
         positionsStored.incrementAndGet();
@@ -106,6 +117,19 @@ public class FleetMetrics {
         metric(out, "nordes_devices_connected", "gauge",
                 "Devices with an open session.");
         out.append("nordes_devices_connected ").append(devicesConnected.getAsLong()).append('\n');
+
+        // WHETHER THE DATABASE IS THE BOTTLENECK, BEFORE IT FAILS. Threads
+        // waiting for a connection is the number that moves first: the pool is
+        // full and requests queue up, long before a timeout reaches the log.
+        Pool estado = pool.get();
+        if (estado != null) {
+            gauge(out, "nordes_db_pool_active", "Database connections in use.", estado.activas());
+            gauge(out, "nordes_db_pool_idle", "Database connections open and free.", estado.libres());
+            gauge(out, "nordes_db_pool_total", "Database connections open.", estado.total());
+            gauge(out, "nordes_db_pool_max", "Most connections the pool will open.", estado.maximo());
+            gauge(out, "nordes_db_pool_pending", "Threads waiting for a database connection.",
+                    estado.esperando());
+        }
         return out.toString();
     }
 
@@ -115,6 +139,11 @@ public class FleetMetrics {
                 .forEach(entry -> out.append(name).append("{protocol=\"")
                         .append(entry.getKey()).append("\"} ")
                         .append(entry.getValue().get()).append('\n'));
+    }
+
+    private static void gauge(StringBuilder out, String name, String help, long value) {
+        metric(out, name, "gauge", help);
+        out.append(name).append(' ').append(value).append('\n');
     }
 
     private static void metric(StringBuilder out, String name, String type, String help) {

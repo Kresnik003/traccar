@@ -26,6 +26,7 @@ import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.DiagnosticReport;
 import org.traccar.model.Server;
+import org.traccar.session.FleetMetrics;
 import org.traccar.storage.StorageException;
 
 import javax.sql.DataSource;
@@ -65,6 +66,14 @@ public class DiagnosticoResource extends BaseResource {
      * added a member to a class that already existed. See
      * DiagnosticReport.present().
      */
+    static String conexiones(FleetMetrics.Pool pool) {
+        if (pool == null) {
+            return "Conexiones a la base: sin datos del pool";
+        }
+        return "Conexiones a la base " + pool.activas() + " en uso, " + pool.libres() + " libres, "
+                + pool.total() + " de " + pool.maximo() + " abiertas, " + pool.esperando() + " esperando";
+    }
+
     static final String[] PATCH_CLASSES = {
         "org.traccar.handler.network.ConnectionLimitHandler",
         "org.traccar.api.resource.RutaResource",
@@ -112,6 +121,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.api.LimiteInformes",
         // 0047, el registro en JSON.
         "org.traccar.helper.LogJson",
+        // 0048, el pool de conexiones en las métricas.
+        "org.traccar.session.FleetMetrics$Pool",
     };
 
     private static final String[] CONFIG_KEYS = {
@@ -204,7 +215,8 @@ public class DiagnosticoResource extends BaseResource {
                 "Encendido hace " + ManagementFactory.getRuntimeMXBean().getUptime() / 60000 + " min",
                 "Memoria de Java " + (runtime.totalMemory() - runtime.freeMemory()) / 1048576 + " de "
                         + runtime.maxMemory() / 1048576 + " MB",
-                "Disco libre " + disk.getUsableSpace() / 1048576 + " de " + disk.getTotalSpace() / 1048576 + " MB"));
+                "Disco libre " + disk.getUsableSpace() / 1048576 + " de " + disk.getTotalSpace() / 1048576 + " MB",
+                conexiones(MetricsResource.estadoPool(dataSource))));
 
         List<String> patches = new ArrayList<>();
         for (String marker : PATCH_CLASSES) {

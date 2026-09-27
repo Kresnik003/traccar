@@ -15,6 +15,8 @@
  */
 package org.traccar.api.resource;
 
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.annotation.security.PermitAll;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -31,6 +33,7 @@ import org.traccar.session.FleetMetrics;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
+import javax.sql.DataSource;
 
 /**
  * Fleet counters for Prometheus.
@@ -63,6 +66,9 @@ public class MetricsResource {
     @Inject
     private ConnectionManager connectionManager;
 
+    @Inject
+    private DataSource dataSource;
+
     private static final String USER = "nordes-metrics";
 
     @PermitAll
@@ -74,7 +80,18 @@ public class MetricsResource {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
         fleetMetrics.setDevicesConnected(connectionManager::getDeviceSessionCount);
+        fleetMetrics.setPool(() -> estadoPool(dataSource));
         return Response.ok(fleetMetrics.render()).build();
+    }
+
+    static FleetMetrics.Pool estadoPool(DataSource dataSource) {
+        if (dataSource instanceof HikariDataSource hikari && hikari.getHikariPoolMXBean() != null) {
+            HikariPoolMXBean pool = hikari.getHikariPoolMXBean();
+            return new FleetMetrics.Pool(
+                    pool.getActiveConnections(), pool.getIdleConnections(), pool.getTotalConnections(),
+                    hikari.getMaximumPoolSize(), pool.getThreadsAwaitingConnection());
+        }
+        return null;
     }
 
     private static boolean valid(String authorization, String token) {

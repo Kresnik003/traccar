@@ -71,4 +71,18 @@ public class FleetMetricsTest {
         }
     }
 
+    @Test
+    public void testThePoolAppearsWhenKnown() {
+        FleetMetrics metrics = new FleetMetrics();
+        assertFalse(metrics.render().contains("nordes_db_pool"), "sin pool, ni una línea");
+        metrics.setPool(() -> new FleetMetrics.Pool(4, 2, 6, 10, 3));
+        String text = metrics.render();
+        assertTrue(text.contains("\nnordes_db_pool_active 4\n"), text);
+        assertTrue(text.contains("\nnordes_db_pool_idle 2\n"), text);
+        assertTrue(text.contains("\nnordes_db_pool_total 6\n"), text);
+        assertTrue(text.contains("\nnordes_db_pool_max 10\n"), text);
+        assertTrue(text.contains("\nnordes_db_pool_pending 3\n"), text);
+        assertTrue(text.contains("# TYPE nordes_db_pool_pending gauge\n"), text);
+    }
+
 }
