@@ -101,6 +101,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.notification.VentanaAccidente",
         // 0042, la gravedad en el evento.
         "org.traccar.helper.Gravedad",
+        // 0043, la última tensión para el contexto de las alarmas.
+        "org.traccar.handler.TensionReciente",
     };
 
     private static final String[] CONFIG_KEYS = {
