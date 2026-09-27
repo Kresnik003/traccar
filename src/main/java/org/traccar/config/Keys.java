@@ -2517,6 +2517,14 @@ public final class Keys {
             "day");
 
     /**
+     * Write each log line as a JSON object (improvement 37), with the network session, device, event, user and
+     * channel as fields, so a notification can be followed with jq. Plain text by default.
+     */
+    public static final ConfigKey<Boolean> LOGGER_JSON = new BooleanConfigKey(
+            "logger.json",
+            List.of(KeyType.CONFIG));
+
+    /**
      * A list of position attributes to log.
      */
     public static final ConfigKey<String> LOGGER_ATTRIBUTES = new StringConfigKey(

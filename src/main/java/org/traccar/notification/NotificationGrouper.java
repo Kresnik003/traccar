@@ -100,18 +100,29 @@ public class NotificationGrouper {
         // crash that arrive later are absorbed, not summarised.
         if (VentanaAccidente.esAccidente(event)) {
             if (accidentes.enviar(user.getId(), type, event.getDeviceId(), System.currentTimeMillis())) {
-                return notificator.sendAsync(notification, user, event, position);
+                return enviado(notificator.sendAsync(notification, user, event, position), event, user, type);
             }
-            LOGGER.info("Accident of device {} already notified to user {} on {}, absorbed",
-                    event.getDeviceId(), user.getId(), type);
+            LOGGER.info("Accident of device {} already notified to user {} on {}, absorbed"
+                    + " evento={} usuario={} canal={} motivo=absorbido",
+                    event.getDeviceId(), user.getId(), type, event.getId(), user.getId(), type);
             return CompletableFuture.completedFuture(null);
         }
         if (windowMillis <= 0
                 || window.offer(key(type, notification, user, event), System.currentTimeMillis(),
                         new Held(type, notificator, notification, user, event, position))) {
-            return notificator.sendAsync(notification, user, event, position);
+            return enviado(notificator.sendAsync(notification, user, event, position), event, user, type);
         }
+        LOGGER.info("Notification held for the summary evento={} usuario={} canal={} motivo=agrupado",
+                event.getId(), user.getId(), type);
         return CompletableFuture.completedFuture(null);
+    }
+
+    // The line that says it did go out: without it, "why did no alert arrive"
+    // could only be answered by what was NOT in the log.
+    private static CompletableFuture<Void> enviado(
+            CompletableFuture<Void> envio, Event event, User user, String type) {
+        return envio.thenRun(() -> LOGGER.info("Notification sent evento={} usuario={} canal={}",
+                event.getId(), user.getId(), type));
     }
 
     static String prefix(int count, long first, long last, TimeZone timeZone) {
@@ -164,15 +175,17 @@ public class NotificationGrouper {
                     copy.set(ATTRIBUTE_COUNT, summary.count());
                     sent = held.notificator().sendAsync(held.notification(), held.user(), copy, held.position());
                 }
-                sent.exceptionally(throwable -> {
-                    LOGGER.warn("Grouped notification failed", throwable);
+                enviado(sent, held.event(), held.user(), held.type()).exceptionally(throwable -> {
+                    LOGGER.warn("Grouped notification failed evento={} usuario={} canal={}",
+                            held.event().getId(), held.user().getId(), held.type(), throwable);
                     // A summary is a notification too. It used to be logged and
                     // lost here while a single alert that failed was queued.
                     queue(held, throwable);
                     return null;
                 });
-                LOGGER.info("Grouped notification: {} held for user {} on {}",
-                        summary.count(), held.user().getId(), held.type());
+                LOGGER.info("Grouped notification: {} held for user {} on {} evento={} usuario={} canal={}",
+                        summary.count(), held.user().getId(), held.type(),
+                        held.event().getId(), held.user().getId(), held.type());
             } catch (RuntimeException e) {
                 LOGGER.warn("Grouped notification failed", e);
                 queue(held, e);

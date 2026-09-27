@@ -111,7 +111,8 @@ public class NotificationManager {
         forwardEvent(event, position);
 
         if (System.currentTimeMillis() - event.getEventTime().getTime() > timeThreshold) {
-            LOGGER.info("Skipping notifications for old event");
+            LOGGER.info("Skipping notifications for old event evento={} tipo={} equipo={} motivo=viejo",
+                    event.getId(), event.getType(), event.getDeviceId());
             return;
         }
 
@@ -145,11 +146,14 @@ public class NotificationManager {
 
         Device device = cacheManager.getObject(Device.class, event.getDeviceId());
         LOGGER.info(
-                "Event id: {}, time: {}, type: {}, notifications: {}",
+                "Event id: {}, time: {}, type: {}, notifications: {} evento={} tipo={} alarma={}",
                 device.getUniqueId(),
                 DateUtil.formatDate(event.getEventTime(), false),
                 event.getType(),
-                notifications.size());
+                notifications.size(),
+                event.getId(),
+                event.getType(),
+                event.getString(Position.KEY_ALARM, "-"));
 
         // Silenced device (improvement 13): recorded in the inbox, not sent.
         boolean callada = SilencioAvisos.callar(device, event, System.currentTimeMillis());
@@ -162,7 +166,8 @@ public class NotificationManager {
             notifications.forEach(notification -> {
                 cacheManager.getNotificationUsers(notification.getId(), event.getDeviceId()).forEach(user -> {
                     if (blockedUsers.contains(user.getId()) || user.getDisabled()) {
-                        LOGGER.info("User {} notification blocked", user.getId());
+                        LOGGER.info("User {} notification blocked evento={} usuario={} motivo=bloqueado",
+                                user.getId(), event.getId(), user.getId());
                         return;
                     }
                     // Into the user's inbox before any channel is tried: a
@@ -170,15 +175,17 @@ public class NotificationManager {
                     // them, and it is exactly the one they must be able to find.
                     bandejaAvisos.anotar(user.getId(), event.getId());
                     if (callada) {
-                        LOGGER.info("Device {} silenced, event {} not sent to user {}",
-                                device.getUniqueId(), event.getType(), user.getId());
+                        LOGGER.info("Device {} silenced, event {} not sent to user {}"
+                                + " evento={} usuario={} motivo=silenciada",
+                                device.getUniqueId(), event.getType(), user.getId(), event.getId(), user.getId());
                         return;
                     }
                     for (String notificator : notification.getNotificatorsTypes()) {
                         notificationGrouper.send(notificator, notificatorManager.getNotificator(notificator),
                                         notification, user, event, position)
                                 .exceptionally(throwable -> {
-                                    LOGGER.warn("Notification failed", throwable);
+                                    LOGGER.warn("Notification failed evento={} usuario={} canal={}",
+                                            event.getId(), user.getId(), notificator, throwable);
                                     // AND IT IS NO LONGER LOST. Telegram going down, the network
                                     // blinking, a 429 - and the alert saying the bike was knocked
                                     // over never arrived, with nobody the wiser unless they read
