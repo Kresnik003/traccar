@@ -77,6 +77,11 @@ public class ColaAvisos {
         if (reintentos <= 0) {
             return;
         }
+        if (FalloDefinitivo.es(causa)) {
+            LOGGER.warn("Notification not queued, a retry would fail the same way evento={} usuario={} canal={}"
+                    + " motivo=definitivo", event.getId(), user.getId(), notificator);
+            return;
+        }
         try {
             AvisoPendiente pendiente = new AvisoPendiente();
             pendiente.setEventId(event.getId());

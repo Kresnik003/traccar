@@ -24,6 +24,7 @@ import org.traccar.model.Notification;
 import org.traccar.model.Position;
 import org.traccar.model.User;
 import org.traccar.notification.EsperaReintento;
+import org.traccar.notification.FalloDefinitivo;
 import org.traccar.notification.NotificatorManager;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
@@ -189,6 +190,12 @@ public class TaskAvisosPendientes extends SingleScheduleTask {
     private void aplazar(AvisoPendiente pendiente, Throwable causa) {
         try {
             int intentos = pendiente.getIntentos() + 1;
+            if (FalloDefinitivo.es(causa)) {
+                LOGGER.warn("Giving up on notification {}, a retry would fail the same way: {}",
+                        pendiente.getId(), EsperaReintento.motivo(causa, ERROR_MAXIMO));
+                borrar(pendiente);
+                return;
+            }
             if (!EsperaReintento.quedanReintentos(intentos, reintentos)) {
                 LOGGER.warn("Giving up on notification {} after {} attempts: {}",
                         pendiente.getId(), intentos, EsperaReintento.motivo(causa, ERROR_MAXIMO));
