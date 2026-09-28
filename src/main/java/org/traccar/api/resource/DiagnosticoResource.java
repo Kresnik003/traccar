@@ -129,6 +129,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.notificators.NotificatorWebhook",
         // 0051, el estado de FOTA WEB en la ficha.
         "org.traccar.helper.ClienteFota",
+        // 0052, la respuesta a un mando no se filtra.
+        "org.traccar.handler.FilterHandler#isCommandResult",
     };
 
     private static final String[] CONFIG_KEYS = {
