@@ -49,6 +49,7 @@ public class FilterHandlerTest extends BaseTest {
         when(config.getString(Keys.FILTER_MAX_SPEED.getKey())).thenReturn("500");
         when(config.getString(Keys.FILTER_SKIP_LIMIT.getKey())).thenReturn("10");
         when(config.getString(Keys.FILTER_SKIP_ATTRIBUTES.getKey())).thenReturn("alarm,result");
+        when(config.getString(Keys.FILTER_OUTDATED.getKey())).thenReturn("true");
         var cacheManager = mock(CacheManager.class);
         when(cacheManager.getConfig()).thenReturn(config);
         when(cacheManager.getObject(any(), anyLong())).thenReturn(device);
@@ -85,6 +86,52 @@ public class FilterHandlerTest extends BaseTest {
 
         assertTrue(filteringHandler.filter(position));
         assertFalse(passingHandler.filter(position));
+
+    }
+
+    @Test
+    public void testOutdatedCommandResult() {
+
+        Position position = createPosition(new Date(), true, 10);
+        position.setOutdated(true);
+
+        assertTrue(filteringHandler.filter(position));
+
+        position.set(Position.KEY_RESULT, "Ver:03.28.07_16 Hw:FTC880");
+
+        assertFalse(filteringHandler.filter(position));
+
+    }
+
+    @Test
+    public void testRepeatedCommandResult() {
+
+        var device = mock(Device.class);
+        when(device.getAttributes()).thenReturn(new HashMap<>());
+        var config = mock(Config.class);
+        when(config.getString(Keys.FILTER_STATIC.getKey())).thenReturn("true");
+        when(config.getString(Keys.FILTER_DUPLICATE.getKey())).thenReturn("true");
+        when(config.getString(Keys.FILTER_SKIP_ATTRIBUTES.getKey())).thenReturn("alarm,result");
+        when(config.getString(Keys.FILTER_OUTDATED.getKey())).thenReturn("true");
+        var cacheManager = mock(CacheManager.class);
+        when(cacheManager.getConfig()).thenReturn(config);
+        when(cacheManager.getObject(any(), anyLong())).thenReturn(device);
+
+        Date time = new Date();
+        Position last = createPosition(time, true, 0);
+        last.set(Position.KEY_RESULT, "Param ID:1024904 Value:1");
+        when(cacheManager.getPosition(anyLong())).thenReturn(last);
+        var handler = new FilterHandler(cacheManager, null);
+
+        Position position = createPosition(time, true, 0);
+        position.setOutdated(true);
+        position.set(Position.KEY_RESULT, "Param ID:1024904 Value:1");
+
+        assertFalse(handler.filter(position));
+
+        position.getAttributes().remove(Position.KEY_RESULT);
+
+        assertTrue(handler.filter(position));
 
     }
 

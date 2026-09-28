@@ -70,9 +70,20 @@ public class FilterHandler extends BasePositionHandler {
         return false;
     }
 
+    /**
+     * Whether this position carries a device's answer to a command. The answer
+     * (Codec 12 and the like) has no fix of its own, so the decoder marks it
+     * outdated and copies the last location. It is not stale or excess data:
+     * dropping it loses the answer before it becomes a commandResult event,
+     * and the user waits for a reply that did arrive.
+     */
+    private static boolean isCommandResult(Position position) {
+        return position.hasAttribute(Position.KEY_RESULT);
+    }
+
     private boolean filterOutdated(Position position) {
         Boolean filterOutdated = AttributeUtil.lookup(cacheManager, Keys.FILTER_OUTDATED, position.getDeviceId());
-        return Boolean.TRUE.equals(filterOutdated) && position.getOutdated();
+        return Boolean.TRUE.equals(filterOutdated) && position.getOutdated() && !isCommandResult(position);
     }
 
     private boolean filterFuture(Position position) {
@@ -223,7 +234,11 @@ public class FilterHandler extends BasePositionHandler {
         Position last = cacheManager.getPosition(deviceId);
         // Inside a circuit, keep every point: the excess-data filters are off.
         boolean fullRate = insideFullRateGeofence(position);
-        boolean skip = fullRate || skipLimit(position, last) || skipAttributes(position, last);
+        // A command answer is never excess data either. skipAttributes does not
+        // cover it when the same command gets the same answer twice: the value
+        // equals the last one and a parked vehicle drops it as static.
+        boolean skip = fullRate || isCommandResult(position)
+                || skipLimit(position, last) || skipAttributes(position, last);
         if (filterDuplicate(position, last) && !skip) {
             filterTypes.add("Duplicate");
         }
