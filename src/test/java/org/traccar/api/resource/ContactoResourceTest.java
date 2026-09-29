@@ -1,6 +1,7 @@
 package org.traccar.api.resource;
 
 import jakarta.ws.rs.core.SecurityContext;
+import jakarta.ws.rs.WebApplicationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -9,6 +10,11 @@ import org.traccar.api.security.PermissionsService;
 import org.traccar.api.security.UserPrincipal;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
+import org.traccar.model.ObjectOperation;
+import org.traccar.model.User;
+import org.traccar.seguridad.Destinatarios;
+import org.traccar.seguridad.SitiosPropios;
+import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
 import org.traccar.telegram.ClienteTelegram;
 import org.traccar.telegram.CodigosAlta;
@@ -19,6 +25,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -42,6 +49,9 @@ public class ContactoResourceTest {
     private Storage storage;
     private PermissionsService permissionsService;
     private ClienteTelegram clienteTelegram;
+    private Destinatarios destinatarios;
+    private SitiosPropios sitiosPropios;
+    private CacheManager cacheManager;
 
     private static void poner(Class<?> clase, Object objeto, String campo, Object valor) throws Exception {
         Field field = clase.getDeclaredField(campo);
@@ -62,6 +72,16 @@ public class ContactoResourceTest {
         poner(BaseResource.class, resource, "securityContext", securityContext);
         poner(ContactoResource.class, resource, "clienteTelegram", clienteTelegram);
         when(clienteTelegram.nombreDelBot()).thenReturn("NordesBot");
+        User juan = new User();
+        juan.setId(2);
+        juan.setName("Juan");
+        when(permissionsService.getUser(2)).thenReturn(juan);
+        destinatarios = mock(Destinatarios.class);
+        sitiosPropios = mock(SitiosPropios.class);
+        cacheManager = mock(CacheManager.class);
+        poner(ContactoResource.class, resource, "destinatarios", destinatarios);
+        poner(ContactoResource.class, resource, "sitiosPropios", sitiosPropios);
+        poner(ContactoResource.class, resource, "cacheManager", cacheManager);
         when(storage.getObjects(eq(Contacto.class), any())).thenReturn(new ArrayList<>());
     }
 
@@ -123,6 +143,67 @@ public class ContactoResourceTest {
         assertFalse(visto.containsKey("codigo"));
         assertFalse(visto.containsValue("901"));
         assertEquals("Ana", visto.get("nombre"));
+    }
+
+    @Test
+    public void aDeviceReadonlyUserCanNeitherAddNorRemove() throws Exception {
+        // Found in review (29/9): they could remove the rider's contacts, and with
+        // them the warnings, or add strangers who would get the live links.
+        doThrow(new SecurityException("Write access denied")).when(permissionsService)
+                .checkEdit(anyLong(), eq(Device.class), eq(false), eq(false));
+        assertThrows(SecurityException.class, () -> resource.add(new ContactoResource.Alta(8, "Ana")));
+        Contacto contacto = new Contacto();
+        contacto.setId(3);
+        contacto.setDeviceId(8);
+        when(storage.getObject(eq(Contacto.class), any())).thenReturn(contacto);
+        assertThrows(SecurityException.class, () -> resource.remove(3));
+        verify(storage, never()).addObject(any(), any());
+        verify(storage, never()).removeObject(any(), any());
+    }
+
+    @Test
+    public void aFollowMeLinkDoesNotShowTheContacts() throws Exception {
+        // Found in review: whoever held a "follow me" link could list the names.
+        User temporal = new User();
+        temporal.setId(2);
+        temporal.setTemporary(true);
+        when(permissionsService.getUser(2)).thenReturn(temporal);
+        WebApplicationException error = assertThrows(WebApplicationException.class, () -> resource.get(8));
+        assertEquals(403, error.getResponse().getStatus());
+    }
+
+    @Test
+    public void iRideItMakesMeTheRider() throws Exception {
+        Device device = new Device();
+        device.setId(8);
+        when(storage.getObject(eq(Device.class), any())).thenReturn(device);
+        resource.serMotorista(8);
+        ArgumentCaptor<Device> captor = ArgumentCaptor.forClass(Device.class);
+        verify(storage).updateObject(captor.capture(), any());
+        assertEquals(2, captor.getValue().getLong(Destinatarios.MOTORISTA));
+        verify(cacheManager).invalidateObject(true, Device.class, 8, ObjectOperation.UPDATE);
+        verify(sitiosPropios).olvidar(8);
+    }
+
+    @Test
+    public void theRiderIsShownWithoutTheirChat() throws Exception {
+        User juan = new User();
+        juan.setId(2);
+        juan.setName("Juan");
+        juan.set("telegramChatId", "900");
+        when(destinatarios.motorista(8)).thenReturn(Optional.of(juan));
+        Map<String, Object> visto = resource.motorista(8);
+        assertEquals("Juan", visto.get("nombre"));
+        assertEquals(true, visto.get("soyYo"));
+        assertFalse(visto.containsValue("900"));
+    }
+
+    @Test
+    public void withoutARiderTheWebIsTold() throws Exception {
+        when(destinatarios.motorista(8)).thenReturn(Optional.empty());
+        Map<String, Object> visto = resource.motorista(8);
+        assertEquals(null, visto.get("nombre"));
+        assertEquals(false, visto.get("soyYo"));
     }
 
 }

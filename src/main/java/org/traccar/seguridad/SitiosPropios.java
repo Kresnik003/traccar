@@ -17,7 +17,6 @@ package org.traccar.seguridad;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
-import org.traccar.model.Device;
 import org.traccar.model.Geofence;
 import org.traccar.model.User;
 import org.traccar.storage.Storage;
@@ -29,6 +28,7 @@ import org.traccar.storage.query.Request;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -47,11 +47,18 @@ public class SitiosPropios {
     }
 
     private final Storage storage;
+    private final Destinatarios destinatarios;
     private final Map<Long, Guardado> cache = new ConcurrentHashMap<>();
 
     @Inject
-    public SitiosPropios(Storage storage) {
+    public SitiosPropios(Storage storage, Destinatarios destinatarios) {
         this.storage = storage;
+        this.destinatarios = destinatarios;
+    }
+
+    /** The rider changed: the next position reads the places again. */
+    public void olvidar(long deviceId) {
+        cache.remove(deviceId);
     }
 
     public List<Sitio> de(long deviceId) throws StorageException {
@@ -61,13 +68,12 @@ public class SitiosPropios {
             return guardado.sitios();
         }
         List<Sitio> sitios = new ArrayList<>();
-        for (User user : storage.getObjects(User.class, new Request(
-                new Columns.All(), new Condition.Permission(User.class, Device.class, deviceId)))) {
-            if (user.getTemporary()) {
-                continue;
-            }
-            for (Geofence geofence : storage.getObjects(Geofence.class, new Request(
-                    new Columns.All(), new Condition.Permission(User.class, user.getId(), Geofence.class)))) {
+        // The rider's places only: another person who sees the bike has a home of
+        // their own, and leaving it is not the rider leaving (found in review).
+        Optional<User> motorista = destinatarios.motorista(deviceId);
+        if (motorista.isPresent()) {
+            for (Geofence geofence : storage.getObjects(Geofence.class, new Request(new Columns.All(),
+                    new Condition.Permission(User.class, motorista.get().getId(), Geofence.class)))) {
                 if (!geofence.getBoolean("sitio")) {
                     continue;
                 }

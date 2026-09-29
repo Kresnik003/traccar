@@ -53,6 +53,13 @@ public class ClienteTelegram {
     public record Boton(String texto, String dato) {
     }
 
+    /** What getUpdates answered: the updates, or why there are none. */
+    public record Lectura(int estado, JsonNode updates, String descripcion) {
+        public boolean ok() {
+            return estado >= 200 && estado < 300;
+        }
+    }
+
     private final Client enviarCliente;
     private final Client leerCliente;
     private final ObjectMapper objectMapper;
@@ -95,19 +102,32 @@ public class ClienteTelegram {
         llamar(enviarCliente, "answerCallbackQuery", cuerpo);
     }
 
-    /** What arrived from {@code desde} on, waiting up to {@code espera} s. Empty if the call fails. */
-    public JsonNode leer(long desde, int espera) {
+    /**
+     * What arrived from {@code desde} on, waiting up to {@code espera} s. A refusal
+     * is reported, not turned into an empty inbox: found in review on 2026-09-29,
+     * a 409 (a webhook, or a second reader with the real token) or a 401 read as
+     * "no messages", forever and without a line in the log, while sign-ups and
+     * "I'm fine" stopped working.
+     */
+    public Lectura leer(long desde, int espera) {
         ObjectNode cuerpo = objectMapper.createObjectNode();
         cuerpo.put("offset", desde);
         cuerpo.put("timeout", espera);
         cuerpo.putArray("allowed_updates").add("message").add("callback_query");
         try (Response response = leerCliente.target(base + "getUpdates").request()
                 .post(Entity.json(cuerpo.toString()))) {
-            return objectMapper.readTree(response.readEntity(String.class)).path("result");
+            JsonNode json = objectMapper.readTree(response.readEntity(String.class));
+            int estado = response.getStatus();
+            if (estado < 200 || estado >= 300) {
+                String descripcion = json.path("description").asText(null);
+                LOGGER.warn("Telegram getUpdates answered HTTP {}: {}", estado, descripcion);
+                return new Lectura(estado, objectMapper.createArrayNode(), descripcion);
+            }
+            return new Lectura(estado, json.path("result"), null);
         } catch (Exception e) {
             // The token is in the URL: the exception itself is never logged.
             LOGGER.warn("Telegram getUpdates failed: {}", e.getClass().getSimpleName());
-            return objectMapper.createArrayNode();
+            return new Lectura(0, objectMapper.createArrayNode(), e.getClass().getSimpleName());
         }
     }
 

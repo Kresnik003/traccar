@@ -36,15 +36,29 @@ import org.traccar.telegram.ClienteTelegram;
 import org.traccar.telegram.FirmaBoton;
 import org.traccar.telegram.ReceptorBoton;
 
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 /**
  * "Has left" and "has arrived" for the rider's emergency contacts
  * (improvement 115). The departure is seen on the positions, as they arrive;
  * the arrival, and the twelve hours after which a forgotten trip closes, by
  * TaskViajes from what is in the database, so a restart loses nothing.
+ *
+ * A DEPARTURE IS ARMED, THEN FIRED. A position with a fix inside one of the
+ * rider's places arms it; the first position with a fix outside, with the
+ * ignition on and riding, fires it. Heartbeats without a fix (0,0) change
+ * nothing, a fix drifting out of the garage does not ride, and a slow way out
+ * stays armed until the bike picks up speed (found in review on 2026-09-29).
+ *
+ * Like the crash guard, it sends through an executor - alPosicion runs on the
+ * Netty thread - and does nothing while the bot's inbox is off.
  */
 @Singleton
 public class ViajesFamilia implements ReceptorBoton {
@@ -53,32 +67,39 @@ public class ViajesFamilia implements ReceptorBoton {
 
     private static final long VENTANA_QUIETA = 30 * 60_000L;
 
-    private static final int POSICIONES_MAXIMAS = 200;
+    private static final int POSICIONES_MAXIMAS = 500;
 
+    private final boolean activo;
     private final Storage storage;
     private final ClienteTelegram cliente;
     private final EnlacesDirectos enlaces;
     private final Destinatarios destinatarios;
     private final SitiosPropios sitios;
     private final FirmaBoton firma;
+    private final Executor envios;
+
+    /** Per device, the place a departure is armed from, if any. */
+    private final Map<Long, Sitio> armados = new ConcurrentHashMap<>();
 
     @Inject
     public ViajesFamilia(
             Config config, Storage storage, ClienteTelegram cliente, EnlacesDirectos enlaces,
-            Destinatarios destinatarios, SitiosPropios sitios) {
-        this(storage, cliente, enlaces, destinatarios, sitios,
-                new FirmaBoton(config.getString(Keys.NOTIFICATOR_TELEGRAM_KEY, "")));
+            Destinatarios destinatarios, SitiosPropios sitios, ExecutorService executorService) {
+        this(config.getBoolean(Keys.TELEGRAM_BUZON), storage, cliente, enlaces, destinatarios, sitios,
+                new FirmaBoton(config.getString(Keys.NOTIFICATOR_TELEGRAM_KEY, "")), executorService);
     }
 
     ViajesFamilia(
-            Storage storage, ClienteTelegram cliente, EnlacesDirectos enlaces, Destinatarios destinatarios,
-            SitiosPropios sitios, FirmaBoton firma) {
+            boolean activo, Storage storage, ClienteTelegram cliente, EnlacesDirectos enlaces,
+            Destinatarios destinatarios, SitiosPropios sitios, FirmaBoton firma, Executor envios) {
+        this.activo = activo;
         this.storage = storage;
         this.cliente = cliente;
         this.enlaces = enlaces;
         this.destinatarios = destinatarios;
         this.sitios = sitios;
         this.firma = firma;
+        this.envios = envios;
     }
 
     @Override
@@ -88,8 +109,11 @@ public class ViajesFamilia implements ReceptorBoton {
 
     /** A new position of a device. Runs on the Netty thread: it never throws. */
     public void alPosicion(Position position, Position anterior) {
+        if (!activo) {
+            return;
+        }
         try {
-            if (anterior == null || !Fijacion.tiene(position)) {
+            if (!Fijacion.tiene(position)) {
                 return;
             }
             long deviceId = position.getDeviceId();
@@ -97,17 +121,24 @@ public class ViajesFamilia implements ReceptorBoton {
             if (propios.isEmpty()) {
                 return;
             }
-            Optional<Sitio> antes = ReglasViaje.dentro(propios, anterior.getLatitude(), anterior.getLongitude());
             Optional<Sitio> ahora = ReglasViaje.dentro(propios, position.getLatitude(), position.getLongitude());
-            if (!ReglasViaje.esSalida(antes, ahora, position.getBoolean(Position.KEY_IGNITION))
-                    || abierto(deviceId, System.currentTimeMillis()) != null) {
+            if (ahora.isPresent()) {
+                armados.put(deviceId, ahora.get());
+                return;
+            }
+            Optional<Sitio> armado = Optional.ofNullable(armados.get(deviceId));
+            if (!ReglasViaje.esSalida(armado, ahora, position.getBoolean(Position.KEY_IGNITION), position.getSpeed())) {
+                return;
+            }
+            armados.remove(deviceId);
+            if (abierto(deviceId, System.currentTimeMillis()) != null) {
                 return;
             }
             List<Destinatarios.Destinatario> contactos = destinatarios.contactos(deviceId);
             if (contactos.isEmpty()) {
                 return;
             }
-            abrir(deviceId, antes.get().nombre(), contactos);
+            abrir(deviceId, armado.get().nombre(), contactos);
         } catch (Exception e) {
             LOGGER.warn("Trip check failed for device {}", position.getDeviceId(), e);
         }
@@ -130,22 +161,24 @@ public class ViajesFamilia implements ReceptorBoton {
                     new Columns.Include("enlace", "shareUserId"), new Condition.Equals("id", viaje.getId())));
         }
         String texto = Mensajes.salida(destinatarios.persona(deviceId), origen, moto(deviceId), viaje.getEnlace());
-        contactos.forEach(contacto -> cliente.enviar(contacto.chatId(), texto, List.of()));
-        for (String chat : destinatarios.chatsDelDueno(deviceId)) {
-            cliente.enviar(chat, Mensajes.alDuenoViajeAbierto(),
-                    List.of(new ClienteTelegram.Boton("He llegado", firma.firmar(accion(), viaje.getId()))));
-        }
+        Optional<String> motorista = destinatarios.chatDelMotorista(deviceId);
+        List<ClienteTelegram.Boton> boton = List.of(
+                new ClienteTelegram.Boton("He llegado", firma.firmar(accion(), viaje.getId())));
+        envios.execute(() -> {
+            contactos.forEach(contacto -> cliente.enviar(contacto.chatId(), texto, List.of()));
+            motorista.ifPresent(chat -> cliente.enviar(chat, Mensajes.alDuenoViajeAbierto(), boton));
+        });
     }
 
+    /** The button and the check close the same trip from two threads: one at a time, reading it again. */
     @Override
-    public String pulsado(long id, String chatId) {
+    public synchronized String pulsado(long id, String chatId) {
         try {
-            Viaje viaje = storage.getObject(Viaje.class, new Request(
-                    new Columns.All(), new Condition.Equals("id", id)));
+            Viaje viaje = leer(id);
             if (viaje == null) {
                 return "Este viaje ya no existe.";
             }
-            if (!destinatarios.chatsDelDueno(viaje.getDeviceId()).contains(chatId)) {
+            if (!chatId.equals(destinatarios.chatDelMotorista(viaje.getDeviceId()).orElse(null))) {
                 return "Este botón no es tuyo.";
             }
             if (viaje.getFin() != null) {
@@ -161,13 +194,16 @@ public class ViajesFamilia implements ReceptorBoton {
 
     /** Called every 30 s by TaskViajes: arrivals and forgotten trips. */
     public void revisar(long ahora) {
+        if (!activo) {
+            return;
+        }
         try {
             for (Viaje viaje : recientes(ahora)) {
                 if (viaje.getFin() != null) {
                     continue;
                 }
                 try {
-                    revisar(viaje, ahora);
+                    revisar(viaje.getId(), ahora);
                 } catch (Exception e) {
                     LOGGER.warn("Trip {} failed", viaje.getId(), e);
                 }
@@ -177,19 +213,29 @@ public class ViajesFamilia implements ReceptorBoton {
         }
     }
 
-    private void revisar(Viaje viaje, long ahora) throws StorageException {
+    private synchronized void revisar(long id, long ahora) throws StorageException {
+        Viaje viaje = leer(id);
+        if (viaje == null || viaje.getFin() != null) {
+            return;
+        }
         if (ReglasViaje.caducado(viaje.getInicio(), ahora)) {
             cerrar(viaje, "caducado", null, false);
             return;
         }
         long desde = Math.max(viaje.getInicio().getTime(), ahora - VENTANA_QUIETA);
         List<Position> recientes;
+        // By fix time, which has an index, with the same room as the crash guard;
+        // the device time orders them here.
         try (var stream = storage.getObjectsStream(Position.class, new Request(new Columns.All(),
                 new Condition.And(
                         new Condition.Equals("deviceId", viaje.getDeviceId()),
-                        new Condition.Between("deviceTime", new Date(desde), new Date(ahora))),
-                new Order("deviceTime", true, POSICIONES_MAXIMAS)))) {
-            recientes = stream.toList();
+                        new Condition.Between("fixTime",
+                                new Date(desde - GuardianGolpes.MARGEN_FIJACION), new Date(ahora))),
+                new Order("fixTime", true, POSICIONES_MAXIMAS)))) {
+            recientes = stream
+                    .filter(p -> p.getDeviceTime() != null && p.getDeviceTime().getTime() >= desde)
+                    .sorted(Comparator.comparing(Position::getDeviceTime).reversed())
+                    .toList();
         }
         if (recientes.isEmpty()) {
             return;
@@ -217,8 +263,8 @@ public class ViajesFamilia implements ReceptorBoton {
         }
         if (avisar) {
             String texto = Mensajes.llegada(destinatarios.persona(viaje.getDeviceId()), sitio);
-            destinatarios.contactos(viaje.getDeviceId())
-                    .forEach(contacto -> cliente.enviar(contacto.chatId(), texto, List.of()));
+            List<Destinatarios.Destinatario> contactos = destinatarios.contactos(viaje.getDeviceId());
+            envios.execute(() -> contactos.forEach(contacto -> cliente.enviar(contacto.chatId(), texto, List.of())));
         }
     }
 
@@ -236,6 +282,10 @@ public class ViajesFamilia implements ReceptorBoton {
         return recientes(ahora).stream()
                 .filter(viaje -> viaje.getDeviceId() == deviceId && viaje.getFin() == null)
                 .findFirst().orElse(null);
+    }
+
+    private Viaje leer(long id) throws StorageException {
+        return storage.getObject(Viaje.class, new Request(new Columns.All(), new Condition.Equals("id", id)));
     }
 
     private String moto(long deviceId) throws StorageException {

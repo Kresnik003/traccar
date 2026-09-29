@@ -72,8 +72,16 @@ public class ViajesFamiliaTest {
         return viaje;
     }
 
+    private final List<Runnable> encolados = new ArrayList<>();
+
     private ViajesFamilia viajes() {
-        return new ViajesFamilia(storage, cliente, enlaces, destinatarios, sitios, firma);
+        return new ViajesFamilia(true, storage, cliente, enlaces, destinatarios, sitios, firma, Runnable::run);
+    }
+
+    /** At home with the engine on, then out riding. */
+    private static void salir(ViajesFamilia viajes) {
+        viajes.alPosicion(pos(T - 10_000, 43.0, true, 10), null);
+        viajes.alPosicion(pos(T, 43.01, true, 30), null);
     }
 
     @BeforeEach
@@ -89,13 +97,15 @@ public class ViajesFamiliaTest {
                 new Sitio(1, "Casa", new GeofenceCircle("CIRCLE (43 -8, 100)")),
                 new Sitio(2, "Trabajo", new GeofenceCircle("CIRCLE (43.05 -8, 100)"))));
         when(storage.getObjects(eq(Viaje.class), any())).thenAnswer(i -> abiertos);
+        // Closing reads the trip again first.
+        when(storage.getObject(eq(Viaje.class), any())).thenAnswer(i -> abiertos.isEmpty() ? null : abiertos.get(0));
         when(storage.getObjectsStream(eq(Position.class), any())).thenAnswer(i -> recientes.stream());
         when(storage.addObject(any(Viaje.class), any())).thenReturn(12L);
         Device device = new Device();
         device.setName("Ducati");
         when(storage.getObject(eq(Device.class), any())).thenReturn(device);
         when(cliente.enviar(anyString(), anyString(), anyList())).thenReturn(new RespuestaTelegram(200, null));
-        when(destinatarios.chatsDelDueno(8)).thenReturn(List.of("900"));
+        when(destinatarios.chatDelMotorista(8)).thenReturn(Optional.of("900"));
         when(destinatarios.persona(8)).thenReturn("Juan");
         when(destinatarios.contactos(8)).thenReturn(List.of(new Destinatarios.Destinatario("901", null, 1L)));
         when(enlaces.enlaceDeEquipo(eq(8L), any(), eq("viaje"), eq(12L))).thenReturn(
@@ -104,7 +114,7 @@ public class ViajesFamiliaTest {
 
     @Test
     public void aDepartureOpensATripAndTellsTheContacts() throws Exception {
-        viajes().alPosicion(pos(T, 43.01, true, 30), pos(T - 10_000, 43.0, true, 10));
+        salir(viajes());
         verify(storage).addObject(any(Viaje.class), any());
         verify(cliente).enviar(eq("901"), contains("ha salido de Casa"), anyList());
         verify(cliente).enviar(eq("901"), contains("https://n.es/?token=v"), anyList());
@@ -117,14 +127,14 @@ public class ViajesFamiliaTest {
     @Test
     public void anOpenTripDoesNotOpenAnother() throws Exception {
         abiertos.add(viaje(T - 60_000));
-        viajes().alPosicion(pos(T, 43.01, true, 30), pos(T - 10_000, 43.0, true, 10));
+        salir(viajes());
         verify(storage, never()).addObject(any(Viaje.class), any());
     }
 
     @Test
     public void withoutContactsThereIsNoTrip() throws Exception {
         when(destinatarios.contactos(8)).thenReturn(List.of());
-        viajes().alPosicion(pos(T, 43.01, true, 30), pos(T - 10_000, 43.0, true, 10));
+        salir(viajes());
         verify(storage, never()).addObject(any(Viaje.class), any());
         verify(cliente, never()).enviar(anyString(), anyString(), anyList());
     }
@@ -133,7 +143,9 @@ public class ViajesFamiliaTest {
     public void aPositionWithoutAFixDecidesNothing() throws Exception {
         Position sinFix = pos(T, 43.01, true, 30);
         sinFix.setValid(false);
-        viajes().alPosicion(sinFix, pos(T - 10_000, 43.0, true, 10));
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 10_000, 43.0, true, 10), null);
+        viajes.alPosicion(sinFix, null);
         verify(storage, never()).addObject(any(Viaje.class), any());
     }
 
@@ -209,6 +221,68 @@ public class ViajesFamiliaTest {
         viajes().revisar(T);
         verify(storage, never()).updateObject(any(), any());
         verify(enlaces, never()).cortar(anyLong());
+    }
+
+    @Test
+    public void theGpsDriftingOutOfTheGarageDoesNotLeave() throws Exception {
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 10_000, 43.0, true, 0), null);
+        viajes.alPosicion(pos(T, 43.0015, true, 0), null);
+        verify(storage, never()).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void aSlowWayOutStaysArmedUntilRiding() throws Exception {
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 20_000, 43.0, true, 5), null);
+        viajes.alPosicion(pos(T - 10_000, 43.0015, true, 5), null);
+        verify(storage, never()).addObject(any(Viaje.class), any());
+        viajes.alPosicion(pos(T, 43.004, true, 35), null);
+        verify(cliente).enviar(eq("901"), contains("ha salido de Casa"), anyList());
+    }
+
+    @Test
+    public void heartbeatsAtZeroZeroDoNotBreakTheWayOut() throws Exception {
+        // Found in review: the "before" position was the raw previous one, and a
+        // heartbeat at 0,0 between home and the road lost the departure.
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 20_000, 43.0, true, 0), null);
+        Position latido = pos(T - 10_000, 0, false, 0);
+        latido.setLongitude(0);
+        latido.setValid(false);
+        viajes.alPosicion(latido, null);
+        viajes.alPosicion(pos(T, 43.01, true, 40), null);
+        verify(storage).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void theSendsLeaveTheCallersThread() throws Exception {
+        ViajesFamilia viajes = new ViajesFamilia(
+                true, storage, cliente, enlaces, destinatarios, sitios, firma, encolados::add);
+        salir(viajes);
+        verify(storage).addObject(any(Viaje.class), any());
+        verify(cliente, never()).enviar(anyString(), anyString(), anyList());
+        encolados.forEach(Runnable::run);
+        verify(cliente).enviar(eq("901"), contains("ha salido de Casa"), anyList());
+    }
+
+    @Test
+    public void withTheInboxOffThereAreNoTrips() throws Exception {
+        salir(new ViajesFamilia(false, storage, cliente, enlaces, destinatarios, sitios, firma, Runnable::run));
+        verify(storage, never()).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void theArrivalReadsTheTripAgainBeforeClosing() throws Exception {
+        // The button and the check close the same trip from two threads.
+        abiertos.add(viaje(T - 3_600_000));
+        Viaje cerrado = viaje(T - 3_600_000);
+        cerrado.setFin(new Date(T - 1_000));
+        when(storage.getObject(eq(Viaje.class), any())).thenReturn(cerrado);
+        recientes.add(pos(T, 43.05, false, 0));
+        recientes.add(pos(T - 180_000, 43.05, false, 0));
+        viajes().revisar(T);
+        verify(cliente, never()).enviar(anyString(), anyString(), anyList());
     }
 
 }

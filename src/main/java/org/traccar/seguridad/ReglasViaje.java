@@ -38,6 +38,8 @@ public final class ReglasViaje {
 
     private static final double QUIETA_KNOTS = UnitsConverter.knotsFromKph(3);
 
+    private static final double SALIDA_KNOTS = UnitsConverter.knotsFromKph(15);
+
     private ReglasViaje() {
     }
 
@@ -45,8 +47,15 @@ public final class ReglasViaje {
         return sitios.stream().filter(sitio -> sitio.geometria().containsPoint(latitud, longitud)).findFirst();
     }
 
-    public static boolean esSalida(Optional<Sitio> antes, Optional<Sitio> ahora, boolean contacto) {
-        return antes.isPresent() && ahora.isEmpty() && contacto;
+    /**
+     * A departure: the place the bike was last seen in (with a fix) is behind it,
+     * and it is riding. Found in review on 2026-09-29: "outside with the ignition
+     * on" was enough, and a fix drifting out of the garage while the engine warmed
+     * up told the contacts that the rider had left. Riding is what tells the two
+     * apart; a slow way out stays armed until the bike picks up speed.
+     */
+    public static boolean esSalida(Optional<Sitio> armado, Optional<Sitio> ahora, boolean contacto, double nudos) {
+        return armado.isPresent() && ahora.isEmpty() && contacto && nudos >= SALIDA_KNOTS;
     }
 
     public static boolean esLlegada(Optional<Sitio> donde, boolean contacto, long quietaDesde, long ahora) {
