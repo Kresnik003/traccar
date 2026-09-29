@@ -66,4 +66,23 @@ public final class Mensajes {
         return "Compañero de la quedada «" + quedada + "».\n" + aContacto(persona, moto, hora, lugar, enlace);
     }
 
+    public static String salida(String persona, String sitio, String moto, String enlace) {
+        StringBuilder texto = new StringBuilder();
+        texto.append(persona).append(" ha salido de ").append(sitio).append(" con su ").append(moto).append('.');
+        if (enlace != null) {
+            texto.append("\nUbicación en directo: ").append(enlace);
+        }
+        texto.append("\nTe avisaremos cuando llegue.");
+        return texto.toString();
+    }
+
+    public static String alDuenoViajeAbierto() {
+        return "Viaje abierto: tus contactos te siguen hasta que llegues. Si llegas a un sitio que no es "
+                + "uno de los tuyos, pulsa el botón.";
+    }
+
+    public static String llegada(String persona, String sitio) {
+        return sitio != null ? persona + " ha llegado bien a " + sitio + "." : persona + " ha llegado bien.";
+    }
+
 }

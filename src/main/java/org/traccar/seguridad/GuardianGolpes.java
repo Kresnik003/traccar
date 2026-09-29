@@ -219,7 +219,8 @@ public class GuardianGolpes implements ReceptorBoton {
 
     private void avisar(Guardia guardia, long ahora) throws StorageException {
         long deviceId = guardia.getDeviceId();
-        var enlace = enlaces.enlaceDeEquipo(deviceId, new Date(guardia.getGolpe().getTime() + DURACION_ENLACE));
+        var enlace = enlaces.enlaceDeEquipo(
+                deviceId, new Date(guardia.getGolpe().getTime() + DURACION_ENLACE), "golpe", guardia.getId());
         guardia.setEstado(Guardia.AVISADA);
         guardia.setEnlace(enlace.map(EnlacesDirectos.Enlace::url).orElse(null));
         // Written before sending: a restart in the middle must not warn everybody twice.

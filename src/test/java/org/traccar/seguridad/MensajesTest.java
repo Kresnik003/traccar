@@ -54,4 +54,22 @@ public class MensajesTest {
         assertTrue(texto.contains("Nordés no avisa al 112"), texto);
     }
 
+    @Test
+    public void aDepartureSaysFromWhereAndGivesTheLink() {
+        String texto = Mensajes.salida("Juan", "Casa", "Ducati", "https://n.es/?token=v");
+        assertTrue(texto.startsWith("Juan ha salido de Casa con su Ducati."), texto);
+        assertTrue(texto.contains("https://n.es/?token=v"), texto);
+    }
+
+    @Test
+    public void anArrivalWithOrWithoutAPlace() {
+        assertTrue(Mensajes.llegada("Juan", "Trabajo").equals("Juan ha llegado bien a Trabajo."));
+        assertTrue(Mensajes.llegada("Juan", null).equals("Juan ha llegado bien."));
+    }
+
+    @Test
+    public void theRiderKnowsWhatTheButtonIsFor() {
+        assertTrue(Mensajes.alDuenoViajeAbierto().contains("pulsa el botón"));
+    }
+
 }

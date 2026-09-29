@@ -141,6 +141,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.api.EnlacesDirectos",
         // 0059, el aviso a los contactos tras un golpe sin respuesta.
         "org.traccar.seguridad.GuardianGolpes",
+        // 0060, «ha salido» y «ha llegado» para los contactos.
+        "org.traccar.seguridad.ViajesFamilia",
     };
 
     private static final String[] CONFIG_KEYS = {

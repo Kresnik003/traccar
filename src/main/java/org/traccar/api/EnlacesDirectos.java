@@ -28,8 +28,10 @@ import org.traccar.helper.WebHelper;
 import org.traccar.model.BaseModel;
 import org.traccar.model.Device;
 import org.traccar.model.Group;
+import org.traccar.model.ObjectOperation;
 import org.traccar.model.Permission;
 import org.traccar.model.User;
+import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
@@ -63,17 +65,33 @@ public class EnlacesDirectos {
     private final PermissionsService permissionsService;
     private final TokenManager tokenManager;
     private final Config config;
+    private final CacheManager cacheManager;
 
     @Inject
     public EnlacesDirectos(
-            Storage storage, PermissionsService permissionsService, TokenManager tokenManager, Config config) {
+            Storage storage, PermissionsService permissionsService, TokenManager tokenManager, Config config,
+            CacheManager cacheManager) {
         this.storage = storage;
         this.permissionsService = permissionsService;
         this.tokenManager = tokenManager;
         this.config = config;
+        this.cacheManager = cacheManager;
     }
 
     public Token compartir(User user, Class<? extends BaseModel> clazz, long id, Date expiration)
+            throws StorageException, GeneralSecurityException, IOException {
+        return compartir(user, clazz, id, expiration, null, null);
+    }
+
+    /**
+     * With a {@code sufijo}, the link gets a shared user of its own instead of the
+     * one every link of the device reuses: a trip or a crash can then be cut
+     * without cutting the links the owner handed out, and a 24-hour crash link
+     * does not stretch a one-hour link. {@code etiqueta} goes after the name, so
+     * the owner's list of links says what each one is.
+     */
+    public Token compartir(
+            User user, Class<? extends BaseModel> clazz, long id, Date expiration, String sufijo, String etiqueta)
             throws StorageException, GeneralSecurityException, IOException {
 
         if (permissionsService.getServer().getBoolean(Keys.DEVICE_SHARE_DISABLE.getKey())) {
@@ -95,6 +113,9 @@ public class EnlacesDirectos {
         String shareEmail;
         if (clazz == Device.class) {
             shareEmail = user.getEmail() + ":" + ((Device) object).getUniqueId();
+            if (sufijo != null) {
+                shareEmail += ":" + sufijo;
+            }
         } else {
             shareEmail = user.getEmail() + ":" + clazz.getSimpleName().toLowerCase(Locale.ROOT) + ":" + object.getId();
         }
@@ -104,7 +125,8 @@ public class EnlacesDirectos {
 
         if (share == null) {
             share = new User();
-            share.setName(clazz == Device.class ? ((Device) object).getName() : ((Group) object).getName());
+            share.setName((clazz == Device.class ? ((Device) object).getName() : ((Group) object).getName())
+                    + (etiqueta != null ? " · " + etiqueta : ""));
             share.setEmail(shareEmail);
             share.setExpirationTime(expiration);
             share.setTemporary(true);
@@ -135,11 +157,17 @@ public class EnlacesDirectos {
      * the link.
      */
     public Optional<Enlace> enlaceDeEquipo(long deviceId, Date caduca) {
+        return enlaceDeEquipo(deviceId, caduca, null, 0);
+    }
+
+    /** A link with a shared user of its own, named «etiqueta-referencia»: see {@link #compartir}. */
+    public Optional<Enlace> enlaceDeEquipo(long deviceId, Date caduca, String etiqueta, long referencia) {
+        String sufijo = etiqueta != null ? etiqueta + "-" + referencia : null;
         try {
             for (User user : storage.getObjects(User.class, new Request(
                     new Columns.All(), new Condition.Permission(User.class, Device.class, deviceId)))) {
                 if (!user.getTemporary() && !user.getDisabled()) {
-                    Token token = compartir(user, Device.class, deviceId, caduca);
+                    Token token = compartir(user, Device.class, deviceId, caduca, sufijo, etiqueta);
                     return Optional.of(new Enlace(
                             WebHelper.retrieveWebUrl(config) + "/?token=" + token.token(), token.shareUserId()));
                 }
@@ -149,6 +177,21 @@ public class EnlacesDirectos {
             LOGGER.warn("Could not create a follow link for device {}", deviceId, e);
         }
         return Optional.empty();
+    }
+
+    /** Cuts a link made with its own shared user. A real user is never deleted here. */
+    public void cortar(long shareUserId) {
+        try {
+            User share = storage.getObject(User.class, new Request(
+                    new Columns.All(), new Condition.Equals("id", shareUserId)));
+            if (share == null || !share.getTemporary()) {
+                return;
+            }
+            storage.removeObject(User.class, new Request(new Condition.Equals("id", shareUserId)));
+            cacheManager.invalidateObject(true, User.class, shareUserId, ObjectOperation.DELETE);
+        } catch (Exception e) {
+            LOGGER.warn("Could not cut follow link {}", shareUserId, e);
+        }
     }
 
 }

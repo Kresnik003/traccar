@@ -113,7 +113,7 @@ public class GuardianGolpesTest {
         when(destinatarios.de(8)).thenReturn(List.of(
                 new Destinatarios.Destinatario("901", null, 1L),
                 new Destinatarios.Destinatario("905", "Ruta del Eume", null)));
-        when(enlaces.enlaceDeEquipo(eq(8L), any())).thenReturn(
+        when(enlaces.enlaceDeEquipo(eq(8L), any(), eq("golpe"), eq(7L))).thenReturn(
                 Optional.of(new EnlacesDirectos.Enlace("https://n.es/?token=t", 60)));
     }
 
@@ -210,7 +210,7 @@ public class GuardianGolpesTest {
         ArgumentCaptor<Guardia> captor = ArgumentCaptor.forClass(Guardia.class);
         verify(storage).updateObject(captor.capture(), any());
         assertEquals(Guardia.AVISADA, captor.getValue().getEstado());
-        verify(enlaces).enlaceDeEquipo(eq(8L), eq(new Date(T + 24 * 3_600_000L)));
+        verify(enlaces).enlaceDeEquipo(eq(8L), eq(new Date(T + 24 * 3_600_000L)), eq("golpe"), eq(7L));
     }
 
     @Test
@@ -258,7 +258,7 @@ public class GuardianGolpesTest {
     @Test
     public void noLinkStillWarns() throws Exception {
         abiertas.add(guardia(T));
-        when(enlaces.enlaceDeEquipo(anyLong(), any())).thenReturn(Optional.empty());
+        when(enlaces.enlaceDeEquipo(anyLong(), any(), any(), anyLong())).thenReturn(Optional.empty());
         guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
         verify(cliente).enviar(eq("901"), contains("Posible accidente"), anyList());
     }
