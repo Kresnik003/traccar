@@ -322,4 +322,36 @@ public class BuzonTelegramHiloTest {
         buzon.stop();
     }
 
+    // ---- The watchdog: when the inbox last read the bot (VigiaSeguridad) ----
+
+    @Test
+    public void aGoodReadIsRecordedForTheWatchdog() throws Exception {
+        BuzonTelegram buzon = activo();
+        assertEquals(0, buzon.ultimaLectura());
+        long antes = System.currentTimeMillis();
+        buzon.start();
+        esperarA(() -> buzon.ultimaLectura() >= antes);
+        assertTrue(buzon.ultimaLectura() <= System.currentTimeMillis());
+    }
+
+    @Test
+    public void refusedReadsAreNotAGoodRead() throws Exception {
+        alVaciar = () -> {
+            pausa(10);
+            return fallo(409);
+        };
+        BuzonTelegram buzon = activo();
+        buzon.start();
+        esperarA(() -> esperas.size() >= 4);
+        assertEquals(0, buzon.ultimaLectura());
+    }
+
+    @Test
+    public void theWatchdogKnowsWhetherTheInboxRuns() {
+        assertTrue(activo().activo());
+        assertTrue(configurado("true", null).activo());
+        assertFalse(configurado("true", "true").activo());
+        assertFalse(configurado(null, null).activo());
+    }
+
 }

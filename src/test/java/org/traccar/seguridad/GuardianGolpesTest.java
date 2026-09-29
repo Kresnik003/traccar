@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -660,6 +661,83 @@ public class GuardianGolpesTest {
         guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
         verify(destinatarios, never()).rechazar(anyLong());
         verify(cliente).enviar(eq("901"), contains("Posible accidente"), anyList());
+    }
+
+    // ---- The watchdog (29/9: the tests prove the code; this proves it RUNS) ----
+
+    @Test
+    public void aPassThatReadTheGuardsIsRecorded() throws Exception {
+        GuardianGolpes guardian = guardian();
+        assertEquals(0, guardian.ultimaRevision());
+        guardian.revisar(T);
+        assertEquals(T, guardian.ultimaRevision());
+    }
+
+    @Test
+    public void aPassThatCouldNotReadTheGuardsIsNotRecorded() throws Exception {
+        GuardianGolpes guardian = guardian();
+        guardian.revisar(T);
+        when(storage.getObjects(eq(Guardia.class), any())).thenThrow(new StorageException("caída"));
+        guardian.revisar(T + 10_000);
+        assertEquals(T, guardian.ultimaRevision());
+    }
+
+    @Test
+    public void anInactiveGuardianRecordsNoPass() throws Exception {
+        GuardianGolpes apagado = new GuardianGolpes(
+                false, storage, cliente, enlaces, destinatarios, firma, Runnable::run);
+        apagado.revisar(T);
+        assertEquals(0, apagado.ultimaRevision());
+        assertFalse(apagado.activo());
+        assertTrue(guardian().activo());
+    }
+
+    @Test
+    public void aMessageGivenUpAfterEveryRetryIsCounted() throws Exception {
+        abiertas.add(guardia(T));
+        when(cliente.enviar(eq("905"), anyString(), anyList())).thenReturn(new RespuestaTelegram(0, "red"));
+        GuardianGolpes guardian = guardian();
+        long t0 = T + ReglasGolpe.ESPERA;
+        guardian.revisar(t0);
+        guardian.revisar(t0 + 30_000);
+        guardian.revisar(t0 + 150_000);
+        assertEquals(0, guardian.avisosPerdidos());
+        guardian.revisar(t0 + 750_000);
+        assertEquals(1, guardian.avisosPerdidos());
+        guardian.revisar(t0 + 3_600_000);
+        assertEquals(1, guardian.avisosPerdidos());
+    }
+
+    @Test
+    public void aContactWhoBlockedTheBotIsNotALostMessage() throws Exception {
+        // Lo decidió el contacto, y la web ya lo enseña como rechazado.
+        when(cliente.enviar(eq("901"), anyString(), anyList())).thenReturn(new RespuestaTelegram(403, "blocked"));
+        abiertas.add(guardia(T));
+        GuardianGolpes guardian = guardian();
+        guardian.revisar(T + ReglasGolpe.ESPERA + 1_000);
+        assertEquals(0, guardian.avisosPerdidos());
+    }
+
+    @Test
+    public void aWaitingGuardPastItsLimitByOverAMinuteIsOverdue() throws Exception {
+        Guardia vencida = guardia(T - ReglasGolpe.ESPERA - 61_000);
+        Guardia justo = guardia(T - ReglasGolpe.ESPERA - 60_000);
+        Guardia enHora = guardia(T);
+        Guardia avisada = guardia(T - ReglasGolpe.ESPERA - 600_000);
+        avisada.setEstado(Guardia.AVISADA);
+        Guardia sinLimite = guardia(T);
+        sinLimite.setLimite(null);
+        abiertas.addAll(List.of(vencida, justo, enHora, avisada));
+        assertEquals(OptionalInt.of(1), guardian().vencidas(T));
+        // Una guardia sin límite no se puede revisar nunca: es justo lo que hay que ver.
+        abiertas.add(sinLimite);
+        assertEquals(OptionalInt.of(2), guardian().vencidas(T));
+    }
+
+    @Test
+    public void withoutTheDatabaseTheOverdueCountIsUnknownNotZero() throws Exception {
+        when(storage.getObjects(eq(Guardia.class), any())).thenThrow(new StorageException("caída"));
+        assertTrue(guardian().vencidas(T).isEmpty());
     }
 
 }

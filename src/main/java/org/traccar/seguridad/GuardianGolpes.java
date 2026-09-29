@@ -44,8 +44,10 @@ import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The crash guard (improvement 114). A crash while riding asks the rider on
@@ -83,6 +85,12 @@ public class GuardianGolpes implements ReceptorBoton {
 
     private static final int POSICIONES_MAXIMAS = 500;
 
+    /**
+     * The countdown looks every 10 s: a guard still waiting a minute past its
+     * limit was missed, and nobody has been warned about that crash.
+     */
+    static final long VENCIDA = 60_000;
+
     private record Pendiente(String chatId, String texto, Long contactoId, int intento, long cuando) {
     }
 
@@ -94,6 +102,8 @@ public class GuardianGolpes implements ReceptorBoton {
     private final FirmaBoton firma;
     private final Executor envios;
     private final List<Pendiente> pendientes = new ArrayList<>();
+    private final AtomicLong avisosPerdidos = new AtomicLong();
+    private volatile long ultimaRevision;
 
     @Inject
     public GuardianGolpes(
@@ -118,6 +128,40 @@ public class GuardianGolpes implements ReceptorBoton {
     @Override
     public String accion() {
         return "g";
+    }
+
+    public boolean activo() {
+        return activo;
+    }
+
+    /** When the countdown last read its guards, or zero if it never did (VigiaSeguridad). */
+    public long ultimaRevision() {
+        return ultimaRevision;
+    }
+
+    /** Warnings given up after every retry (VigiaSeguridad). */
+    public long avisosPerdidos() {
+        return avisosPerdidos.get();
+    }
+
+    /**
+     * Guards past their limit by more than {@link #VENCIDA} with nobody warned,
+     * for VigiaSeguridad. Empty, never zero, when the database does not answer:
+     * a zero there would tell the watchdog all is well.
+     */
+    public OptionalInt vencidas(long ahora) {
+        try {
+            return OptionalInt.of((int) storage.getObjects(Guardia.class, new Request(
+                    new Columns.All(), new Condition.Equals("estado", Guardia.ESPERANDO))).stream()
+                    .filter(guardia -> Guardia.ESPERANDO.equals(guardia.getEstado()))
+                    // One without a limit can never be reviewed: exactly what must be seen.
+                    .filter(guardia -> guardia.getLimite() == null
+                            || guardia.getLimite().getTime() < ahora - VENCIDA)
+                    .count());
+        } catch (StorageException e) {
+            LOGGER.warn("Overdue crash guards could not be counted", e);
+            return OptionalInt.empty();
+        }
     }
 
     public void alEvento(Event event, Position position) {
@@ -227,6 +271,7 @@ public class GuardianGolpes implements ReceptorBoton {
                     LOGGER.warn("Crash guard {} failed", guardia.getId(), e);
                 }
             }
+            ultimaRevision = ahora;
         } catch (StorageException e) {
             LOGGER.warn("Crash guards could not be read", e);
         }
@@ -302,6 +347,7 @@ public class GuardianGolpes implements ReceptorBoton {
                         pendiente.intento() + 1, ahora + ESPERAS_REINTENTO[pendiente.intento()]));
             }
         } else {
+            avisosPerdidos.incrementAndGet();
             LOGGER.warn("A safety message was given up after {} retries", ESPERAS_REINTENTO.length);
         }
     }
