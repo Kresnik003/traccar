@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Date;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -70,6 +71,33 @@ public class MensajesTest {
     @Test
     public void theRiderKnowsWhatTheButtonIsFor() {
         assertTrue(Mensajes.alDuenoViajeAbierto().contains("pulsa el botón"));
+    }
+
+    @Test
+    public void whenNoPositionHasAFixTheMessageSaysSoAndPointsToTheLiveMap() {
+        assertEquals("un lugar que el GPS aún no ha fijado (mira la ubicación en directo)", Mensajes.lugarDesconocido());
+        String texto = Mensajes.aContacto("Juan", "Ducati", HORA, Mensajes.lugarDesconocido(), "https://n.es/?token=t");
+        assertTrue(texto.contains(", en un lugar que el GPS aún no ha fijado"), texto);
+    }
+
+    @Test
+    public void aDepartureWithoutALinkHasNoEmptyLine() {
+        String texto = Mensajes.salida("Juan", "Casa", "Ducati", null);
+        assertEquals("Juan ha salido de Casa con su Ducati.\nTe avisaremos cuando llegue.", texto);
+    }
+
+    @Test
+    public void theNewContactIsToldWhoAndThatNordesDoesNotCall112() {
+        String texto = Mensajes.bienvenida("Juan", "Ducati");
+        assertTrue(texto.startsWith("Hola. Ahora eres contacto de emergencia de Juan (Ducati) en Nordés."), texto);
+        assertTrue(texto.contains("Nordés no avisa al 112."), texto);
+        assertTrue(texto.contains("escribe /baja"), texto);
+    }
+
+    @Test
+    public void aStaleCodeAndLeavingAreAnsweredPlainly() {
+        assertEquals("Este enlace ha caducado o ya se usó. Pide uno nuevo a quien te lo mandó.", Mensajes.codigoNoValido());
+        assertEquals("Hecho. Ya no recibirás avisos de Nordés. Si quieres volver, pide un enlace nuevo.", Mensajes.baja());
     }
 
 }

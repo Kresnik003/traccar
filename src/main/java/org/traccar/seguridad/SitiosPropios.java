@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 
 /**
  * The places of a bike's riders: their geofences with the attribute
@@ -48,12 +49,19 @@ public class SitiosPropios {
 
     private final Storage storage;
     private final Destinatarios destinatarios;
+    private final LongSupplier reloj;
     private final Map<Long, Guardado> cache = new ConcurrentHashMap<>();
 
     @Inject
     public SitiosPropios(Storage storage, Destinatarios destinatarios) {
+        this(storage, destinatarios, System::currentTimeMillis);
+    }
+
+    /** With the clock in the tests' hands: the five minutes are tested, not waited for. */
+    SitiosPropios(Storage storage, Destinatarios destinatarios, LongSupplier reloj) {
         this.storage = storage;
         this.destinatarios = destinatarios;
+        this.reloj = reloj;
     }
 
     /** The rider changed: the next position reads the places again. */
@@ -62,7 +70,7 @@ public class SitiosPropios {
     }
 
     public List<Sitio> de(long deviceId) throws StorageException {
-        long ahora = System.currentTimeMillis();
+        long ahora = reloj.getAsLong();
         Guardado guardado = cache.get(deviceId);
         if (guardado != null && ahora - guardado.cuando() < VIGENCIA) {
             return guardado.sitios();

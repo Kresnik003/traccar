@@ -57,11 +57,17 @@ public class BuzonTelegram implements LifecycleObject {
 
     private static final int ESPERA = 25;
 
+    /** How the inbox waits after a failed read: {@code Thread::sleep}, except in tests. */
+    interface Dormir {
+        void dormir(long ms) throws InterruptedException;
+    }
+
     private final boolean activo;
     private final Storage storage;
     private final ClienteTelegram cliente;
     private final Destinatarios destinatarios;
     private final FirmaBoton firma;
+    private final Dormir dormir;
     private final Map<String, ReceptorBoton> receptores = new HashMap<>();
     private volatile boolean corriendo;
     private Thread hilo;
@@ -73,23 +79,24 @@ public class BuzonTelegram implements LifecycleObject {
         this(config.getBoolean(Keys.TELEGRAM_BUZON) && !config.getBoolean(Keys.BROADCAST_SECONDARY),
                 storage, cliente, destinatarios,
                 new FirmaBoton(config.getString(Keys.NOTIFICATOR_TELEGRAM_KEY, "")),
-                List.of(guardianGolpes, viajesFamilia));
+                List.of(guardianGolpes, viajesFamilia), Thread::sleep);
     }
 
     BuzonTelegram(
             Storage storage, ClienteTelegram cliente, Destinatarios destinatarios, FirmaBoton firma,
             List<ReceptorBoton> receptores) {
-        this(false, storage, cliente, destinatarios, firma, receptores);
+        this(false, storage, cliente, destinatarios, firma, receptores, Thread::sleep);
     }
 
-    private BuzonTelegram(
+    BuzonTelegram(
             boolean activo, Storage storage, ClienteTelegram cliente, Destinatarios destinatarios,
-            FirmaBoton firma, List<ReceptorBoton> receptores) {
+            FirmaBoton firma, List<ReceptorBoton> receptores, Dormir dormir) {
         this.activo = activo;
         this.storage = storage;
         this.cliente = cliente;
         this.destinatarios = destinatarios;
         this.firma = firma;
+        this.dormir = dormir;
         receptores.forEach(receptor -> this.receptores.put(receptor.accion(), receptor));
     }
 
@@ -146,7 +153,7 @@ public class BuzonTelegram implements LifecycleObject {
                     // Refused or unreachable: logged by the client, and waited on
                     // longer each time instead of a loop at full speed.
                     fallos += 1;
-                    Thread.sleep(esperaTrasFallos(fallos));
+                    dormir.dormir(esperaTrasFallos(fallos));
                     continue;
                 }
                 fallos = 0;

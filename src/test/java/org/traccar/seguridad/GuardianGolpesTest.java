@@ -12,6 +12,8 @@ import org.traccar.model.Position;
 import org.traccar.model.User;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.Storage;
+import org.traccar.storage.query.Condition;
+import org.traccar.storage.query.Request;
 import org.traccar.telegram.ClienteTelegram;
 import org.traccar.telegram.FirmaBoton;
 import org.traccar.telegram.RespuestaTelegram;
@@ -23,6 +25,7 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -30,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -87,6 +91,26 @@ public class GuardianGolpesTest {
         return guardia;
     }
 
+    /**
+     * Whether a position is what the query asks for. The guardian reads positions
+     * by device and fix time: a window computed wrong reads nothing in the
+     * database, and a mock that ignored the query kept every test green (PIT,
+     * 29/9). Any other query fails the test, so a new one cannot slip by.
+     */
+    private static boolean cumple(Condition condition, Position position) {
+        if (condition instanceof Condition.And and) {
+            return cumple(and.getFirst(), position) && cumple(and.getSecond(), position);
+        }
+        if (condition instanceof Condition.Equals equals && equals.getColumn().equals("deviceId")) {
+            return position.getDeviceId() == ((Number) equals.getValue()).longValue();
+        }
+        if (condition instanceof Condition.Between between && between.getColumn().equals("fixTime")) {
+            return !position.getFixTime().before((Date) between.getFromValue())
+                    && !position.getFixTime().after((Date) between.getToValue());
+        }
+        throw new IllegalArgumentException("Unexpected query: " + condition);
+    }
+
     private final List<Runnable> encolados = new ArrayList<>();
 
     private GuardianGolpes guardian() {
@@ -103,9 +127,13 @@ public class GuardianGolpesTest {
         previas = new ArrayList<>();
         posteriores = new ArrayList<>();
         abiertas = new ArrayList<>();
-        // Each case uses only the positions before the crash or only those after it.
-        when(storage.getObjectsStream(eq(Position.class), any())).thenAnswer(i ->
-                Stream.concat(previas.stream(), posteriores.stream()));
+        // Each case uses only the positions before the crash or only those after it,
+        // and only those the query really reaches.
+        when(storage.getObjectsStream(eq(Position.class), any())).thenAnswer(i -> {
+            Request request = i.getArgument(1);
+            return Stream.concat(previas.stream(), posteriores.stream())
+                    .filter(position -> cumple(request.getCondition(), position));
+        });
         when(storage.getObjects(eq(Guardia.class), any())).thenAnswer(i -> abiertas);
         // The countdown reads each guard again before acting on it.
         when(storage.getObject(eq(Guardia.class), any())).thenAnswer(i -> abiertas.isEmpty() ? null : abiertas.get(0));
@@ -180,7 +208,7 @@ public class GuardianGolpesTest {
         ArgumentCaptor<Guardia> captor = ArgumentCaptor.forClass(Guardia.class);
         verify(storage).updateObject(captor.capture(), any());
         assertEquals(Guardia.CANCELADA_BOTON, captor.getValue().getEstado());
-        assertTrue(respuesta.contains("no avisaremos"), respuesta);
+        assertEquals("Perfecto: no avisaremos a nadie.", respuesta);
     }
 
     @Test
@@ -188,7 +216,7 @@ public class GuardianGolpesTest {
         when(storage.getObject(eq(Guardia.class), any())).thenReturn(guardia(T));
         String respuesta = guardian().pulsado(7, "999");
         verify(storage, never()).updateObject(any(), any());
-        assertTrue(respuesta.contains("no es tuyo"), respuesta);
+        assertEquals("Este botón no es tuyo.", respuesta);
     }
 
     @Test
@@ -353,6 +381,285 @@ public class GuardianGolpesTest {
         guardian().alEvento(accidente(), pos(T, false, 0, 43));
         verify(storage, never()).addObject(any(Guardia.class), any());
         verify(cliente, never()).enviar(anyString(), anyString(), anyList());
+    }
+
+    // ---- What the guard keeps (PIT, 29/9: nothing checked the saved guard) ----
+
+    @Test
+    public void theGuardKeepsWhichBikeWhichCrashAndWhere() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        Position golpe = pos(T, false, 0, 43.3);
+        golpe.setId(321);
+        guardian().alEvento(accidente(), golpe);
+        ArgumentCaptor<Guardia> captor = ArgumentCaptor.forClass(Guardia.class);
+        verify(storage).addObject(captor.capture(), any());
+        Guardia guardia = captor.getValue();
+        assertEquals(8, guardia.getDeviceId());
+        assertEquals(55, guardia.getEventId());
+        assertEquals(321, guardia.getPositionId());
+        assertEquals(new Date(T), guardia.getGolpe());
+        assertEquals(43.3, guardia.getLatitud());
+        assertEquals(-8, guardia.getLongitud());
+        assertEquals(Guardia.ESPERANDO, guardia.getEstado());
+    }
+
+    @Test
+    public void aCrashFrameWithoutAFixDoesNotLeaveAPlaceInTheGuard() throws Exception {
+        // The frame without a fix carries an old place: it must not be taken as the crash site.
+        previas.add(pos(T - 30_000, true, 50, 43));
+        Position golpe = pos(T, false, 0, 43.3);
+        golpe.setValid(false);
+        guardian().alEvento(accidente(), golpe);
+        ArgumentCaptor<Guardia> captor = ArgumentCaptor.forClass(Guardia.class);
+        verify(storage).addObject(captor.capture(), any());
+        assertEquals(0, captor.getValue().getLatitud());
+        assertEquals(0, captor.getValue().getLongitud());
+    }
+
+    @Test
+    public void aCrashEventWithoutAPositionOpensNothing() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        guardian().alEvento(accidente(), null);
+        verify(storage, never()).addObject(any(Guardia.class), any());
+        verify(cliente, never()).enviar(anyString(), anyString(), anyList());
+    }
+
+    @Test
+    public void theCrashFrameAloneCanShowTheBikeWasRidden() throws Exception {
+        // Records sent in batches: the crash frame may be the only proof of riding.
+        guardian().alEvento(accidente(), pos(T, true, 45, 43));
+        verify(storage).addObject(any(Guardia.class), any());
+    }
+
+    @Test
+    public void ridingSeenOnlyInAFrameWithAnOldFixStillCounts() throws Exception {
+        // A frame without a fix carries the fix time of its last good position: the
+        // positions are read with 30 minutes of room so that one is not missed.
+        Position enMarcha = pos(T - 30_000, true, 50, 43);
+        enMarcha.setValid(false);
+        enMarcha.setFixTime(new Date(T - 31 * 60_000));
+        previas.add(enMarcha);
+        guardian().alEvento(accidente(), pos(T, false, 0, 43));
+        verify(storage).addObject(any(Guardia.class), any());
+    }
+
+    // ---- One guard per crash --------------------------------------------------
+
+    private Guardia anterior(long golpe, String estado) {
+        Guardia guardia = guardia(golpe);
+        guardia.setId(6);
+        guardia.setEstado(estado);
+        return guardia;
+    }
+
+    @Test
+    public void aFrameOfACrashAlreadyAnsweredOpensNothing() throws Exception {
+        previas.add(pos(T - 90_000, true, 50, 43));
+        abiertas.add(anterior(T - 60_000, Guardia.CANCELADA_BOTON));
+        guardian().alEvento(accidente(), pos(T, false, 0, 43));
+        verify(storage, never()).addObject(any(Guardia.class), any());
+    }
+
+    @Test
+    public void anEarlierFrameOfTheSameCrashArrivingLateOpensNothing() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        abiertas.add(anterior(T + 60_000, Guardia.AVISADA));
+        guardian().alEvento(accidente(), pos(T, false, 0, 43));
+        verify(storage, never()).addObject(any(Guardia.class), any());
+    }
+
+    @Test
+    public void aCrashTenMinutesAfterTheLastOneIsANewOne() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        abiertas.add(anterior(T - 600_000, Guardia.AVISADA));
+        guardian().alEvento(accidente(), pos(T, false, 0, 43));
+        verify(storage).addObject(any(Guardia.class), any());
+    }
+
+    @Test
+    public void aGuardStillWaitingBlocksAnotherOneWhateverItsAge() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        abiertas.add(anterior(T - 20 * 60_000, Guardia.ESPERANDO));
+        guardian().alEvento(accidente(), pos(T, false, 0, 43));
+        verify(storage, never()).addObject(any(Guardia.class), any());
+    }
+
+    // ---- A rider without Telegram ---------------------------------------------
+
+    @Test
+    public void aRiderWithoutTelegramIsNotAskedButTheContactsAreStillWarned() throws Exception {
+        when(destinatarios.chatDelMotorista(8)).thenReturn(Optional.empty());
+        previas.add(pos(T - 30_000, true, 50, 43));
+        new GuardianGolpes(true, storage, cliente, enlaces, destinatarios, firma, encolados::add)
+                .alEvento(accidente(), pos(T, false, 0, 43));
+        ArgumentCaptor<Guardia> captor = ArgumentCaptor.forClass(Guardia.class);
+        verify(storage).addObject(captor.capture(), any());
+        assertTrue(encolados.isEmpty(), "nothing to send to a rider without Telegram");
+        Guardia guardada = captor.getValue();
+        abiertas.add(guardada);
+        guardian().revisar(guardada.getLimite().getTime());
+        verify(cliente).enviar(eq("901"), contains("Posible accidente"), anyList());
+        verify(cliente, never()).enviar(eq("900"), anyString(), anyList());
+    }
+
+    // ---- The button: every answer, word for word ------------------------------
+
+    @Test
+    public void theButtonOfAGuardThatNoLongerExists() throws Exception {
+        when(storage.getObject(eq(Guardia.class), any())).thenReturn(null);
+        assertEquals("Este aviso ya no existe.", guardian().pulsado(7, "900"));
+        verify(storage, never()).updateObject(any(), any());
+    }
+
+    @Test
+    public void theButtonAfterTheWarningSaysTheContactsKnow() throws Exception {
+        Guardia avisada = guardia(T);
+        avisada.setEstado(Guardia.AVISADA);
+        when(storage.getObject(eq(Guardia.class), any())).thenReturn(avisada);
+        assertEquals("Tus contactos ya han sido avisados. Diles tú que estás bien.", guardian().pulsado(7, "900"));
+        verify(storage, never()).updateObject(any(), any());
+    }
+
+    @Test
+    public void theButtonOfAGuardAlreadyCancelled() throws Exception {
+        for (String estado : List.of(Guardia.CANCELADA_MOVIMIENTO, Guardia.CANCELADA_BOTON)) {
+            Guardia cancelada = guardia(T);
+            cancelada.setEstado(estado);
+            when(storage.getObject(eq(Guardia.class), any())).thenReturn(cancelada);
+            assertEquals("Ya estaba cancelado: no avisaremos a nadie.", guardian().pulsado(7, "900"), estado);
+        }
+        verify(storage, never()).updateObject(any(), any());
+    }
+
+    @Test
+    public void theButtonWhenTheDatabaseFailsAsksToPressAgain() throws Exception {
+        when(storage.getObject(eq(Guardia.class), any())).thenReturn(guardia(T));
+        doThrow(new StorageException("caída")).when(storage).updateObject(any(), any());
+        assertEquals("No se ha podido guardar. Vuelve a pulsar.", guardian().pulsado(7, "900"));
+        when(storage.getObject(eq(Guardia.class), any())).thenThrow(new StorageException("caída"));
+        assertEquals("No se ha podido guardar. Vuelve a pulsar.", guardian().pulsado(7, "900"));
+    }
+
+    // ---- The countdown --------------------------------------------------------
+
+    @Test
+    public void withTheInboxOffTheCountdownDoesNothing() throws Exception {
+        abiertas.add(guardia(T));
+        new GuardianGolpes(false, storage, cliente, enlaces, destinatarios, firma, Runnable::run)
+                .revisar(T + ReglasGolpe.ESPERA + 1_000);
+        verify(cliente, never()).enviar(anyString(), anyString(), anyList());
+        verify(storage, never()).updateObject(any(), any());
+    }
+
+    @Test
+    public void atTheExactLimitTheContactsAreWarned() throws Exception {
+        abiertas.add(guardia(T));
+        guardian().revisar(T + ReglasGolpe.ESPERA);
+        verify(cliente).enviar(eq("901"), contains("Posible accidente"), anyList());
+    }
+
+    @Test
+    public void ridingBeforeTheCrashIsNotRidingOn() throws Exception {
+        abiertas.add(guardia(T));
+        posteriores.add(pos(T - 60_000, true, 50, 42.99));
+        posteriores.add(pos(T - 40_000, true, 50, 42.995));
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        verify(cliente).enviar(eq("901"), contains("Posible accidente"), anyList());
+    }
+
+    @Test
+    public void aFixBeforeTheCrashIsNotWhereTheBikeLies() throws Exception {
+        abiertas.add(guardia(T));
+        Position golpe = pos(T, false, 0, 0);
+        golpe.setLongitude(0);
+        golpe.setValid(false);
+        when(storage.getObject(eq(Position.class), any())).thenReturn(golpe);
+        posteriores.add(pos(T - 60_000, true, 50, 43.1));
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        ArgumentCaptor<String> texto = ArgumentCaptor.forClass(String.class);
+        verify(cliente).enviar(eq("901"), texto.capture(), anyList());
+        assertTrue(texto.getValue().contains(Mensajes.lugarDesconocido()), texto.getValue());
+        assertFalse(texto.getValue().contains("43.10000"), texto.getValue());
+    }
+
+    @Test
+    public void aPositionWithoutDeviceTimeDoesNotStopTheWarning() throws Exception {
+        abiertas.add(guardia(T));
+        Position sinHora = pos(T + 10_000, false, 0, 43);
+        sinHora.setDeviceTime(null);
+        posteriores.add(sinHora);
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        verify(cliente).enviar(eq("901"), contains("Posible accidente"), anyList());
+    }
+
+    // ---- What each person reads -----------------------------------------------
+
+    @Test
+    public void theContactReadsTheContactTextAndTheRideMateTheRideText() throws Exception {
+        abiertas.add(guardia(T));
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        ArgumentCaptor<String> alContacto = ArgumentCaptor.forClass(String.class);
+        verify(cliente).enviar(eq("901"), alContacto.capture(), anyList());
+        assertTrue(alContacto.getValue().startsWith("⚠️ Posible accidente de Juan con su Ducati"), alContacto.getValue());
+        assertFalse(alContacto.getValue().contains("Compañero"), alContacto.getValue());
+        ArgumentCaptor<String> alCompanero = ArgumentCaptor.forClass(String.class);
+        verify(cliente).enviar(eq("905"), alCompanero.capture(), anyList());
+        assertTrue(alCompanero.getValue().startsWith(
+                "Compañero de la quedada «Ruta del Eume».\n⚠️ Posible accidente de Juan"), alCompanero.getValue());
+    }
+
+    @Test
+    public void withoutTheDeviceTheBikeIsCalledMoto() throws Exception {
+        when(storage.getObject(eq(Device.class), any())).thenReturn(null);
+        previas.add(pos(T - 30_000, true, 50, 43));
+        guardian().alEvento(accidente(), pos(T, false, 0, 43));
+        verify(cliente).enviar(eq("900"), contains("golpe en tu moto."), anyList());
+        abiertas.add(guardia(T));
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        verify(cliente).enviar(eq("901"), contains("con su moto,"), anyList());
+    }
+
+    // ---- Sending and retrying ---------------------------------------------------
+
+    @Test
+    public void aMessageThatWentOutIsNotSentAgain() throws Exception {
+        abiertas.add(guardia(T));
+        GuardianGolpes guardian = guardian();
+        long limite = T + ReglasGolpe.ESPERA;
+        for (long despues : new long[] {0, 31_000, 151_000, 780_000, 3_600_000}) {
+            guardian.revisar(limite + despues);
+        }
+        verify(cliente, times(1)).enviar(eq("901"), anyString(), anyList());
+        verify(cliente, times(1)).enviar(eq("905"), anyString(), anyList());
+    }
+
+    @Test
+    public void theRetriesKeepTheirCalendarAndThenGiveUp() throws Exception {
+        abiertas.add(guardia(T));
+        when(cliente.enviar(eq("905"), anyString(), anyList())).thenReturn(new RespuestaTelegram(0, "red"));
+        GuardianGolpes guardian = guardian();
+        long t0 = T + ReglasGolpe.ESPERA;
+        long t1 = t0 + 30_000;
+        long t2 = t1 + 120_000;
+        long t3 = t2 + 600_000;
+        long[][] pasos = {{t0, 1}, {t1 - 1, 1}, {t1, 2}, {t2 - 1, 2}, {t2, 3}, {t3 - 1, 3}, {t3, 4}, {t3 + 3_600_000, 4}};
+        for (long[] paso : pasos) {
+            guardian.revisar(paso[0]);
+            verify(cliente, times((int) paso[1])).enviar(eq("905"), anyString(), anyList());
+        }
+    }
+
+    @Test
+    public void aRideMateWhoBlockedTheBotIsNotMarkedAndDoesNotStopTheOthers() throws Exception {
+        // The ride mate is not an emergency contact: there is nothing of theirs to mark.
+        when(destinatarios.de(8)).thenReturn(List.of(
+                new Destinatarios.Destinatario("905", "Ruta del Eume", null),
+                new Destinatarios.Destinatario("901", null, 1L)));
+        when(cliente.enviar(eq("905"), anyString(), anyList())).thenReturn(new RespuestaTelegram(403, "blocked"));
+        abiertas.add(guardia(T));
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        verify(destinatarios, never()).rechazar(anyLong());
+        verify(cliente).enviar(eq("901"), contains("Posible accidente"), anyList());
     }
 
 }

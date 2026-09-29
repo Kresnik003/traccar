@@ -4,6 +4,7 @@ import jakarta.ws.rs.core.SecurityContext;
 import jakarta.ws.rs.WebApplicationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.mockito.ArgumentCaptor;
 import org.traccar.api.BaseResource;
 import org.traccar.api.security.PermissionsService;
@@ -204,6 +205,130 @@ public class ContactoResourceTest {
         Map<String, Object> visto = resource.motorista(8);
         assertEquals(null, visto.get("nombre"));
         assertEquals(false, visto.get("soyYo"));
+    }
+
+    private User temporal() {
+        User temporal = new User();
+        temporal.setId(2);
+        temporal.setTemporary(true);
+        return temporal;
+    }
+
+    private Contacto contactoDe(long deviceId) throws Exception {
+        Contacto contacto = new Contacto();
+        contacto.setId(3);
+        contacto.setDeviceId(deviceId);
+        when(storage.getObject(eq(Contacto.class), any())).thenReturn(contacto);
+        return contacto;
+    }
+
+    @Test
+    public void aFollowMeLinkCanNeitherAddNorRemoveNorRide() throws Exception {
+        // Aunque el resto de permisos le dejaran pasar: el enlace de «sígueme» es
+        // de quien lo recibe, no de quien lleva la moto.
+        when(permissionsService.getUser(2)).thenReturn(temporal());
+        contactoDe(8);
+        for (var llamada : List.<Executable>of(
+                () -> resource.add(new ContactoResource.Alta(8, "Ana")),
+                () -> resource.remove(3),
+                () -> resource.serMotorista(8),
+                () -> resource.motorista(8))) {
+            WebApplicationException error = assertThrows(WebApplicationException.class, llamada);
+            assertEquals(403, error.getResponse().getStatus());
+        }
+        verify(storage, never()).addObject(any(), any());
+        verify(storage, never()).removeObject(any(), any());
+        verify(storage, never()).updateObject(any(), any());
+    }
+
+    @Test
+    public void aNamelessContactIsABadRequestNotACrash() {
+        assertThrows(IllegalArgumentException.class, () -> resource.add(new ContactoResource.Alta(8, null)));
+    }
+
+    @Test
+    public void aNameCanBeUpToSixtyFourCharacters() throws Exception {
+        resource.add(new ContactoResource.Alta(8, "a".repeat(64)));
+        assertThrows(IllegalArgumentException.class,
+                () -> resource.add(new ContactoResource.Alta(8, "a".repeat(65))));
+        verify(storage).addObject(any(Contacto.class), any());
+    }
+
+    @Test
+    public void theWebGetsTheIdItNeedsToRemoveTheContact() throws Exception {
+        when(storage.addObject(any(Contacto.class), any())).thenReturn(41L);
+        assertEquals(41L, resource.add(new ContactoResource.Alta(8, "Ana")).get("id"));
+    }
+
+    @Test
+    public void removingAContactThatIsGoneIsNotFound() throws Exception {
+        when(storage.getObject(eq(Contacto.class), any())).thenReturn(null);
+        WebApplicationException error = assertThrows(WebApplicationException.class, () -> resource.remove(3));
+        assertEquals(404, error.getResponse().getStatus());
+        verify(storage, never()).removeObject(any(), any());
+    }
+
+    @Test
+    public void removingAContactDeletesItAndAnswersNoContent() throws Exception {
+        contactoDe(8);
+        assertEquals(204, resource.remove(3).getStatus());
+        verify(permissionsService).checkPermission(Device.class, 2, 8);
+        verify(storage).removeObject(eq(Contacto.class), any());
+    }
+
+    @Test
+    public void onlyWhoCanSeeTheBikeKnowsWhoRidesIt() throws Exception {
+        doThrow(new SecurityException("no")).when(permissionsService)
+                .checkPermission(eq(Device.class), anyLong(), eq(8L));
+        assertThrows(SecurityException.class, () -> resource.motorista(8));
+        verify(destinatarios, never()).motorista(anyLong());
+    }
+
+    @Test
+    public void whenSomeoneElseRidesItIsNotMe() throws Exception {
+        User esther = new User();
+        esther.setId(5);
+        esther.setName("Esther");
+        when(destinatarios.motorista(8)).thenReturn(Optional.of(esther));
+        Map<String, Object> visto = resource.motorista(8);
+        assertEquals("Esther", visto.get("nombre"));
+        assertEquals(false, visto.get("soyYo"));
+    }
+
+    @Test
+    public void aDeviceReadonlyUserCannotMakeThemselvesTheRider() throws Exception {
+        doThrow(new SecurityException("Write access denied")).when(permissionsService)
+                .checkEdit(anyLong(), eq(Device.class), eq(false), eq(false));
+        assertThrows(SecurityException.class, () -> resource.serMotorista(8));
+        verify(storage, never()).updateObject(any(), any());
+    }
+
+    @Test
+    public void ridingABikeThatIsGoneIsNotFound() throws Exception {
+        when(storage.getObject(eq(Device.class), any())).thenReturn(null);
+        WebApplicationException error = assertThrows(WebApplicationException.class, () -> resource.serMotorista(8));
+        assertEquals(404, error.getResponse().getStatus());
+        verify(storage, never()).updateObject(any(), any());
+    }
+
+    @Test
+    public void ridingItAnswersNoContent() throws Exception {
+        Device device = new Device();
+        device.setId(8);
+        when(storage.getObject(eq(Device.class), any())).thenReturn(device);
+        assertEquals(204, resource.serMotorista(8).getStatus());
+    }
+
+    @Test
+    public void theExpiryIsShownOnlyUntilTheContactConfirms() {
+        Contacto pendiente = new Contacto();
+        Date caduca = new Date(1_790_000_000_000L);
+        pendiente.setCaduca(caduca);
+        assertEquals(caduca, ContactoResource.publico(pendiente).get("caduca"));
+        Contacto confirmado = new Contacto();
+        confirmado.setCaduca(caduca);
+        confirmado.setConfirmado(new Date(1_789_990_000_000L));
+        assertEquals(null, ContactoResource.publico(confirmado).get("caduca"));
     }
 
 }

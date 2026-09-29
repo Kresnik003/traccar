@@ -135,4 +135,71 @@ public class ReglasGolpeTest {
         assertFalse(ReglasGolpe.reciente(new Date(T - 600_000), T));
     }
 
+    // ---- The edges, word for word from each constant (PIT, 29/9) --------------
+
+    @Test
+    public void theRidingWindowIncludesBothEnds() {
+        // Exactly two minutes before, and the crash frame itself.
+        assertTrue(ReglasGolpe.ibaEnMarcha(List.of(pos(ReglasGolpe.ESPERA, true, 0, 43, -8, true)), new Date(T)));
+        assertTrue(ReglasGolpe.ibaEnMarcha(List.of(pos(0, true, 0, 43, -8, true)), new Date(T)));
+    }
+
+    @Test
+    public void ridingAfterTheCrashIsNotRidingBeforeIt() {
+        assertFalse(ReglasGolpe.ibaEnMarcha(List.of(pos(-10_000, true, 50, 43, -8, true)), new Date(T)));
+    }
+
+    @Test
+    public void fiveKmhWithoutIgnitionIsNotRiding() {
+        assertFalse(ReglasGolpe.ibaEnMarcha(List.of(pos(30_000, false, 5, 43, -8, true)), new Date(T)));
+    }
+
+    @Test
+    public void aPositionWithoutDeviceTimeIsSkipped() {
+        Position sinHora = pos(30_000, true, 50, 43, -8, true);
+        sinHora.setDeviceTime(null);
+        assertFalse(ReglasGolpe.ibaEnMarcha(List.of(sinHora), new Date(T)));
+        assertFalse(ReglasGolpe.seHaMovido(new Date(T), List.of(sinHora)));
+        Position sinHoraDespues = despues(40_000, true, 30, true);
+        sinHoraDespues.setDeviceTime(null);
+        assertTrue(ReglasGolpe.seHaMovido(new Date(T), List.of(
+                despues(40_000, true, 30, true), sinHoraDespues, despues(60_000, true, 35, true))));
+        Position ultima = despues(90_000, false, 0, true);
+        ultima.setLatitude(43.2);
+        Position sinHoraConFijacion = despues(100_000, false, 0, true);
+        sinHoraConFijacion.setDeviceTime(null);
+        sinHoraConFijacion.setLatitude(43.9);
+        assertEquals(43.2, ReglasGolpe.dondeEsta(null, List.of(ultima, sinHoraConFijacion)).get().getLatitude());
+    }
+
+    @Test
+    public void ridingOnCountsFromTheThirtiethSecond() {
+        assertTrue(ReglasGolpe.seHaMovido(new Date(T), List.of(
+                despues(ReglasGolpe.ASENTAMIENTO, true, 30, true), despues(50_000, true, 30, true))));
+    }
+
+    @Test
+    public void exactlyTenKmhIsNotRidingOn() {
+        assertFalse(ReglasGolpe.seHaMovido(new Date(T), List.of(
+                despues(40_000, true, 10, true), despues(60_000, true, 10, true))));
+    }
+
+    @Test
+    public void exactlyFifteenSecondsApartIsRidingOn() {
+        assertTrue(ReglasGolpe.seHaMovido(new Date(T), List.of(
+                despues(40_000, true, 30, true), despues(40_000 + ReglasGolpe.SEPARACION, true, 30, true))));
+    }
+
+    @Test
+    public void withoutTheCrashFrameAndWithoutAFixThereIsNoPlace() {
+        assertTrue(ReglasGolpe.dondeEsta(null, List.of()).isEmpty());
+        assertTrue(ReglasGolpe.dondeEsta(null, List.of(despues(40_000, false, 0, false))).isEmpty());
+    }
+
+    @Test
+    public void exactlyFiveMinutesLateIsStillRecent() {
+        assertTrue(ReglasGolpe.reciente(new Date(T - ReglasGolpe.ANTIGUEDAD_MAXIMA), T));
+        assertFalse(ReglasGolpe.reciente(new Date(T - ReglasGolpe.ANTIGUEDAD_MAXIMA - 1), T));
+    }
+
 }

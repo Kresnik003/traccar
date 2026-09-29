@@ -48,4 +48,13 @@ public class ActualizacionTest {
         assertEquals(15, leer("{\"update_id\":15}").updateId());
     }
 
+    @Test
+    public void aMessageWithoutAChatIsNothingWhateverItSays() throws Exception {
+        // Without a chat there is nobody to confirm, unsubscribe or answer.
+        assertInstanceOf(Actualizacion.Otra.class, leer("""
+                {"update_id":16,"message":{"text":"/baja"}}"""));
+        assertInstanceOf(Actualizacion.Otra.class, leer("""
+                {"update_id":17,"message":{"text":"/start AbC_123"}}"""));
+    }
+
 }
