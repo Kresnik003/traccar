@@ -9,6 +9,8 @@ import org.traccar.model.Device;
 import org.traccar.model.Event;
 import org.traccar.model.Guardia;
 import org.traccar.model.Position;
+import org.traccar.model.User;
+import org.traccar.storage.StorageException;
 import org.traccar.storage.Storage;
 import org.traccar.telegram.ClienteTelegram;
 import org.traccar.telegram.FirmaBoton;
@@ -85,8 +87,11 @@ public class GuardianGolpesTest {
         return guardia;
     }
 
+    private final List<Runnable> encolados = new ArrayList<>();
+
     private GuardianGolpes guardian() {
-        return new GuardianGolpes(storage, cliente, enlaces, destinatarios, firma);
+        // Direct executor: the sends run at once, so each case can check them.
+        return new GuardianGolpes(true, storage, cliente, enlaces, destinatarios, firma, Runnable::run);
     }
 
     @BeforeEach
@@ -102,13 +107,16 @@ public class GuardianGolpesTest {
         when(storage.getObjectsStream(eq(Position.class), any())).thenAnswer(i ->
                 Stream.concat(previas.stream(), posteriores.stream()));
         when(storage.getObjects(eq(Guardia.class), any())).thenAnswer(i -> abiertas);
+        // The countdown reads each guard again before acting on it.
+        when(storage.getObject(eq(Guardia.class), any())).thenAnswer(i -> abiertas.isEmpty() ? null : abiertas.get(0));
         when(storage.addObject(any(Guardia.class), any())).thenReturn(7L);
         Device device = new Device();
         device.setName("Ducati");
         when(storage.getObject(eq(Device.class), any())).thenReturn(device);
         when(storage.getObject(eq(Position.class), any())).thenReturn(pos(T, false, 0, 43));
         when(cliente.enviar(anyString(), anyString(), anyList())).thenReturn(new RespuestaTelegram(200, null));
-        when(destinatarios.chatsDelDueno(8)).thenReturn(List.of("900"));
+        when(destinatarios.chatDelMotorista(8)).thenReturn(Optional.of("900"));
+        when(destinatarios.motorista(8)).thenReturn(Optional.of(new User()));
         when(destinatarios.persona(8)).thenReturn("Juan");
         when(destinatarios.de(8)).thenReturn(List.of(
                 new Destinatarios.Destinatario("901", null, 1L),
@@ -124,7 +132,8 @@ public class GuardianGolpesTest {
         ArgumentCaptor<Guardia> captor = ArgumentCaptor.forClass(Guardia.class);
         verify(storage).addObject(captor.capture(), any());
         assertEquals(Guardia.ESPERANDO, captor.getValue().getEstado());
-        assertEquals(T + ReglasGolpe.ESPERA, captor.getValue().getLimite().getTime());
+        long limite = captor.getValue().getLimite().getTime();
+        assertTrue(limite >= T + ReglasGolpe.ESPERA && limite <= System.currentTimeMillis() + ReglasGolpe.ESPERA);
         ArgumentCaptor<List<ClienteTelegram.Boton>> botones = ArgumentCaptor.forClass(List.class);
         verify(cliente).enviar(eq("900"), contains("golpe en tu Ducati"), botones.capture());
         assertEquals("Estoy bien", botones.getValue().get(0).texto());
@@ -184,8 +193,9 @@ public class GuardianGolpesTest {
 
     @Test
     public void movingAgainCancelsWithoutWarningAnybody() throws Exception {
-        abiertas.add(guardia(T - 60_000));
-        posteriores.add(pos(T - 30_000, true, 30, 43.001));
+        abiertas.add(guardia(T - 100_000));
+        posteriores.add(pos(T - 60_000, true, 30, 43.001));
+        posteriores.add(pos(T - 40_000, true, 35, 43.002));
         guardian().revisar(T + 200_000);
         ArgumentCaptor<Guardia> captor = ArgumentCaptor.forClass(Guardia.class);
         verify(storage).updateObject(captor.capture(), any());
@@ -261,6 +271,88 @@ public class GuardianGolpesTest {
         when(enlaces.enlaceDeEquipo(anyLong(), any(), any(), anyLong())).thenReturn(Optional.empty());
         guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
         verify(cliente).enviar(eq("901"), contains("Posible accidente"), anyList());
+    }
+
+    @Test
+    public void theRidersSlideRightAfterTheCrashDoesNotCancel() throws Exception {
+        abiertas.add(guardia(T));
+        posteriores.add(pos(T + 1_000, true, 40, 43.0003));
+        posteriores.add(pos(T + 3_000, true, 20, 43.0005));
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        verify(cliente).enviar(eq("901"), contains("Posible accidente"), anyList());
+    }
+
+    @Test
+    public void theWarningSaysWhereTheBikeLiesNotZeroZero() throws Exception {
+        Guardia guardia = guardia(T);
+        guardia.setLatitud(0);
+        guardia.setLongitud(0);
+        abiertas.add(guardia);
+        Position golpe = pos(T, false, 0, 0);
+        golpe.setValid(false);
+        golpe.setLongitude(0);
+        when(storage.getObject(eq(Position.class), any())).thenReturn(golpe);
+        posteriores.add(pos(T + 40_000, false, 0, 43.47051));
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        verify(cliente).enviar(eq("901"), contains("43.47051, -8.00000"), anyList());
+    }
+
+    @Test
+    public void theSendsLeaveTheCallersThread() throws Exception {
+        // Found in review: the Telegram call ran on the Netty thread and held every device.
+        previas.add(pos(T - 30_000, true, 50, 43));
+        new GuardianGolpes(true, storage, cliente, enlaces, destinatarios, firma, encolados::add)
+                .alEvento(accidente(), pos(T, false, 0, 43));
+        verify(storage).addObject(any(Guardia.class), any());
+        verify(cliente, never()).enviar(anyString(), anyString(), anyList());
+        encolados.forEach(Runnable::run);
+        verify(cliente).enviar(eq("900"), contains("golpe"), anyList());
+    }
+
+    @Test
+    public void aDatabaseHiccupBeforeWarningLeavesTheGuardWaiting() throws Exception {
+        // Found in review: AVISADA was saved before reading whom to warn.
+        abiertas.add(guardia(T));
+        when(destinatarios.de(8)).thenThrow(new StorageException("caída"));
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        verify(storage, never()).updateObject(any(), any());
+        verify(cliente, never()).enviar(anyString(), anyString(), anyList());
+    }
+
+    @Test
+    public void theCountdownReadsTheGuardAgainBeforeWarning() throws Exception {
+        // Found in review: "I'm fine" pressed while the countdown was on the guard.
+        abiertas.add(guardia(T));
+        Guardia cancelada = guardia(T);
+        cancelada.setEstado(Guardia.CANCELADA_BOTON);
+        when(storage.getObject(eq(Guardia.class), any())).thenReturn(cancelada);
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        verify(cliente, never()).enviar(anyString(), anyString(), anyList());
+    }
+
+    @Test
+    public void withTheInboxOffNothingIsArmed() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        new GuardianGolpes(false, storage, cliente, enlaces, destinatarios, firma, Runnable::run)
+                .alEvento(accidente(), pos(T, false, 0, 43));
+        verify(storage, never()).addObject(any(Guardia.class), any());
+    }
+
+    @Test
+    public void withoutARiderNothingIsArmed() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        when(destinatarios.motorista(8)).thenReturn(Optional.empty());
+        guardian().alEvento(accidente(), pos(T, false, 0, 43));
+        verify(storage, never()).addObject(any(Guardia.class), any());
+    }
+
+    @Test
+    public void withNobodyToWarnTheRiderIsNotPromisedAWarning() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        when(destinatarios.de(8)).thenReturn(List.of());
+        guardian().alEvento(accidente(), pos(T, false, 0, 43));
+        verify(storage, never()).addObject(any(Guardia.class), any());
+        verify(cliente, never()).enviar(anyString(), anyString(), anyList());
     }
 
 }

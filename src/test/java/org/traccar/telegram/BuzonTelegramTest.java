@@ -166,9 +166,19 @@ public class BuzonTelegramTest {
     @Test
     public void theFirstStartSkipsWhatWasWrittenBefore() throws Exception {
         when(storage.getObject(eq(EstadoTelegram.class), any())).thenReturn(null);
-        when(cliente.leer(-1, 0)).thenReturn(mapper.readTree("[{\"update_id\":41}]"));
+        when(cliente.leer(-1, 0)).thenReturn(
+                new ClienteTelegram.Lectura(200, mapper.readTree("[{\"update_id\":41}]"), null));
         assertEquals(42, buzon().inicio());
         verify(storage).addObject(any(EstadoTelegram.class), any());
+    }
+
+    @Test
+    public void afterFailuresItWaitsLongerUpToAMinute() {
+        assertEquals(1_000, BuzonTelegram.esperaTrasFallos(1));
+        assertEquals(2_000, BuzonTelegram.esperaTrasFallos(2));
+        assertEquals(32_000, BuzonTelegram.esperaTrasFallos(6));
+        assertEquals(60_000, BuzonTelegram.esperaTrasFallos(7));
+        assertEquals(60_000, BuzonTelegram.esperaTrasFallos(40));
     }
 
 }

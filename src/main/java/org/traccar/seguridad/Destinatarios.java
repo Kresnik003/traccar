@@ -35,12 +35,21 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * Who hears about a bike: its rider (the real users who can see it) and the
- * people to warn (its confirmed emergency contacts and whoever is in a ride in
- * progress with it). Each chat once, and never the rider's own chat among the
- * people to warn.
+ * Who hears about a bike: its RIDER, the one person asked "are you fine?" and
+ * the only one who can answer, and the people to warn (the confirmed emergency
+ * contacts and whoever is in a ride in progress with the bike). Each chat once,
+ * and never the rider's own chat among the people to warn.
+ *
+ * THE RIDER IS ONE PERSON, NOT "WHOEVER SEES THE BIKE". Found in review on
+ * 2026-09-29: with two people on a bike (a couple, a bike an administrator set
+ * up), the other one got "a crash in your bike" and, by pressing "I'm fine",
+ * cancelled the warning to the rider's contacts. The rider is the device
+ * attribute {@code motorista} (a user id, set from the web: "I ride it"), or,
+ * when nobody chose, the only real user linked to the bike directly. With
+ * several and no choice there is no rider, and nothing is armed for the bike.
  */
 @Singleton
 public class Destinatarios {
@@ -48,6 +57,8 @@ public class Destinatarios {
     /** A chat to warn; {@code quedada} is the ride's name for a ride mate, null for a contact. */
     public record Destinatario(String chatId, String quedada, Long contactoId) {
     }
+
+    public static final String MOTORISTA = "motorista";
 
     private static final String EN_MARCHA = "en_marcha";
 
@@ -58,45 +69,57 @@ public class Destinatarios {
         this.storage = storage;
     }
 
-    private List<User> usuariosReales(long deviceId) throws StorageException {
-        return storage.getObjects(User.class, new Request(
-                new Columns.All(), new Condition.Permission(User.class, Device.class, deviceId))).stream()
-                .filter(user -> !user.getTemporary() && !user.getDisabled())
-                .toList();
+    private static boolean real(User user) {
+        return !user.getTemporary() && !user.getDisabled();
     }
 
-    public List<String> chatsDelDueno(long deviceId) throws StorageException {
-        return usuariosReales(deviceId).stream()
+    public Optional<User> motorista(long deviceId) throws StorageException {
+        Device device = storage.getObject(Device.class, new Request(
+                new Columns.All(), new Condition.Equals("id", deviceId)));
+        if (device != null && device.hasAttribute(MOTORISTA)) {
+            long elegido = device.getLong(MOTORISTA);
+            // Only while the chosen one can still see the bike.
+            return storage.getObjects(User.class, new Request(
+                    new Columns.All(), new Condition.Permission(User.class, Device.class, deviceId))).stream()
+                    .filter(Destinatarios::real)
+                    .filter(user -> user.getId() == elegido)
+                    .findFirst();
+        }
+        List<User> directos = storage.getObjects(User.class, new Request(
+                new Columns.All(), new Condition.Permission(User.class, Device.class, deviceId).excludeGroups()))
+                .stream().filter(Destinatarios::real).toList();
+        return directos.size() == 1 ? Optional.of(directos.get(0)) : Optional.empty();
+    }
+
+    public Optional<String> chatDelMotorista(long deviceId) throws StorageException {
+        return motorista(deviceId)
                 .map(user -> user.getString("telegramChatId"))
-                .filter(chat -> chat != null && !chat.isBlank())
-                .distinct()
-                .toList();
+                .filter(chat -> !chat.isBlank());
     }
 
     /** The rider's name for the messages. */
     public String persona(long deviceId) throws StorageException {
-        return usuariosReales(deviceId).stream()
+        return motorista(deviceId)
                 .map(User::getName)
                 .filter(name -> name != null && !name.isBlank())
-                .findFirst()
                 .orElse("tu contacto");
     }
 
     public List<Destinatario> contactos(long deviceId) throws StorageException {
+        String delMotorista = chatDelMotorista(deviceId).orElse(null);
         return storage.getObjects(Contacto.class, new Request(
                 new Columns.All(), new Condition.Equals("deviceid", deviceId), new Order("creado"))).stream()
                 .filter(c -> c.getChatId() != null && c.getConfirmado() != null && c.getRechazado() == null)
+                .filter(c -> !c.getChatId().equals(delMotorista))
                 .map(c -> new Destinatario(c.getChatId(), null, c.getId()))
                 .toList();
     }
 
     public List<Destinatario> de(long deviceId) throws StorageException {
-        List<String> delDueno = chatsDelDueno(deviceId);
+        String delMotorista = chatDelMotorista(deviceId).orElse(null);
         Map<String, Destinatario> porChat = new LinkedHashMap<>();
         for (Destinatario contacto : contactos(deviceId)) {
-            if (!delDueno.contains(contacto.chatId())) {
-                porChat.putIfAbsent(contacto.chatId(), contacto);
-            }
+            porChat.putIfAbsent(contacto.chatId(), contacto);
         }
         for (QuedadaEquipo equipo : storage.getObjects(QuedadaEquipo.class, new Request(
                 new Columns.Exclude("id"), new Condition.Equals("deviceId", deviceId)))) {
@@ -115,7 +138,7 @@ public class Destinatarios {
                 User user = storage.getObject(User.class, new Request(
                         new Columns.All(), new Condition.Equals("id", userId)));
                 String chat = user == null || user.getDisabled() ? null : user.getString("telegramChatId");
-                if (chat != null && !chat.isBlank() && !delDueno.contains(chat)) {
+                if (chat != null && !chat.isBlank() && !chat.equals(delMotorista)) {
                     porChat.putIfAbsent(chat, new Destinatario(chat, quedada.getNombre(), null));
                 }
             }

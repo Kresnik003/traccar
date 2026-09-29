@@ -48,6 +48,11 @@ public final class Mensajes {
         return String.format(Locale.ROOT, "%.5f, %.5f", latitud, longitud);
     }
 
+    /** When no position of the bike has a fix yet: the live link will show it. */
+    public static String lugarDesconocido() {
+        return "un lugar que el GPS aún no ha fijado (mira la ubicación en directo)";
+    }
+
     public static String aContacto(String persona, String moto, Date hora, String lugar, String enlace) {
         StringBuilder texto = new StringBuilder();
         texto.append("⚠️ Posible accidente de ").append(persona).append(" con su ").append(moto)

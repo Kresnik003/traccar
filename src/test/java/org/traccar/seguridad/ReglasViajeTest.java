@@ -35,21 +35,32 @@ public class ReglasViajeTest {
         return position;
     }
 
+    private static double kmh(double valor) {
+        return UnitsConverter.knotsFromKph(valor);
+    }
+
     @Test
-    public void leavingHomeWithTheIgnitionOnIsADeparture() {
-        assertTrue(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), true));
+    public void leavingHomeRidingIsADeparture() {
+        assertTrue(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), true, kmh(30)));
     }
 
     @Test
     public void warmingUpAtHomeIsNotADeparture() {
-        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.of(casa), true));
+        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.of(casa), true, kmh(0)));
     }
 
     @Test
-    public void leavingWithoutIgnitionIsNotADeparture() {
+    public void theGpsDriftingOutOfTheGarageIsNotADeparture() {
+        // Found in review (29/9): without static navigation the fix wanders while
+        // the engine warms up, and one position outside a small place was "left".
+        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), true, kmh(3)));
+    }
+
+    @Test
+    public void leavingWithoutIgnitionOrFromNowhereIsNotADeparture() {
         // Pushed, or on a tow truck: that is what the theft alarms are for.
-        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), false));
-        assertFalse(ReglasViaje.esSalida(Optional.empty(), Optional.empty(), true));
+        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), false, kmh(30)));
+        assertFalse(ReglasViaje.esSalida(Optional.empty(), Optional.empty(), true, kmh(30)));
     }
 
     @Test

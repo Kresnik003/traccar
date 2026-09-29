@@ -110,8 +110,21 @@ public class ClienteTelegramTest {
 
     @Test
     public void readingReturnsTheResultArray() {
-        var result = cliente(200, "{\"ok\":true,\"result\":[{\"update_id\":5}]}").leer(0, 25);
-        assertEquals(5, result.get(0).path("update_id").asLong());
+        var lectura = cliente(200, "{\"ok\":true,\"result\":[{\"update_id\":5}]}").leer(0, 25);
+        assertTrue(lectura.ok());
+        assertEquals(5, lectura.updates().get(0).path("update_id").asLong());
         assertTrue(cuerpos.get(0).toString().contains("\"timeout\":25"));
+    }
+
+    @Test
+    public void aRefusedReadIsReportedNotTakenForAnEmptyInbox() {
+        // Found in review (29/9): a 409 (a webhook, or a second reader) or a 401
+        // came back as "no messages", forever and without a line in the log.
+        var lectura = cliente(409, "{\"ok\":false,\"description\":\"Conflict: terminated by other getUpdates request\"}")
+                .leer(0, 25);
+        assertFalse(lectura.ok());
+        assertEquals(409, lectura.estado());
+        assertEquals("Conflict: terminated by other getUpdates request", lectura.descripcion());
+        assertEquals(0, lectura.updates().size());
     }
 }

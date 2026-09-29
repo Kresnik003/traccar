@@ -20,6 +20,7 @@ import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -30,7 +31,11 @@ import jakarta.ws.rs.core.Response;
 import org.traccar.api.BaseResource;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
-import org.traccar.model.UserRestrictions;
+import org.traccar.model.ObjectOperation;
+import org.traccar.model.User;
+import org.traccar.seguridad.Destinatarios;
+import org.traccar.seguridad.SitiosPropios;
+import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
@@ -43,6 +48,7 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The emergency contacts of a bike (improvement 113). Adding one returns the
@@ -61,19 +67,46 @@ public class ContactoResource extends BaseResource {
     @Inject
     private ClienteTelegram clienteTelegram;
 
+    @Inject
+    private Destinatarios destinatarios;
+
+    @Inject
+    private SitiosPropios sitiosPropios;
+
+    @Inject
+    private CacheManager cacheManager;
+
     public record Alta(long deviceId, String nombre) {
+    }
+
+    /**
+     * Found in review on 2026-09-29: the contacts asked less than editing the
+     * device. A user with read-only devices could remove the rider's contacts -
+     * and with them the warnings - or add strangers who would get the live links,
+     * and whoever held a "follow me" link could read the names.
+     */
+    private void noTemporal() throws StorageException {
+        if (permissionsService.getUser(getUserId()).getTemporary()) {
+            throw new WebApplicationException(Response.Status.FORBIDDEN);
+        }
+    }
+
+    private void puedeEditar(long deviceId) throws StorageException {
+        noTemporal();
+        permissionsService.checkPermission(Device.class, getUserId(), deviceId);
+        permissionsService.checkEdit(getUserId(), Device.class, false, false);
     }
 
     @GET
     public List<Map<String, Object>> get(@QueryParam("deviceId") long deviceId) throws StorageException {
+        noTemporal();
         permissionsService.checkPermission(Device.class, getUserId(), deviceId);
         return delEquipo(deviceId).stream().map(ContactoResource::publico).toList();
     }
 
     @POST
     public Map<String, Object> add(Alta alta) throws StorageException {
-        permissionsService.checkPermission(Device.class, getUserId(), alta.deviceId());
-        permissionsService.checkRestriction(getUserId(), UserRestrictions::getReadonly);
+        puedeEditar(alta.deviceId());
         String nombre = alta.nombre() == null ? "" : alta.nombre().strip();
         if (nombre.isEmpty() || nombre.length() > NOMBRE_MAXIMO) {
             throw new IllegalArgumentException("El nombre del contacto va de 1 a " + NOMBRE_MAXIMO + " caracteres");
@@ -107,9 +140,42 @@ public class ContactoResource extends BaseResource {
         if (contacto == null) {
             throw new WebApplicationException(Response.Status.NOT_FOUND);
         }
-        permissionsService.checkPermission(Device.class, getUserId(), contacto.getDeviceId());
-        permissionsService.checkRestriction(getUserId(), UserRestrictions::getReadonly);
+        puedeEditar(contacto.getDeviceId());
         storage.removeObject(Contacto.class, new Request(new Condition.Equals("id", id)));
+        return Response.noContent().build();
+    }
+
+    /**
+     * Who rides the bike: the one person asked "are you fine?" after a crash. Its
+     * name, whether it is the caller, and whether someone chose it; never its chat.
+     */
+    @Path("motorista")
+    @GET
+    public Map<String, Object> motorista(@QueryParam("deviceId") long deviceId) throws StorageException {
+        noTemporal();
+        permissionsService.checkPermission(Device.class, getUserId(), deviceId);
+        Optional<User> motorista = destinatarios.motorista(deviceId);
+        Map<String, Object> visto = new LinkedHashMap<>();
+        visto.put("nombre", motorista.map(User::getName).orElse(null));
+        visto.put("soyYo", motorista.map(user -> user.getId() == getUserId()).orElse(false));
+        return visto;
+    }
+
+    /** "I ride it": the caller becomes the bike's rider. */
+    @Path("motorista")
+    @PUT
+    public Response serMotorista(@QueryParam("deviceId") long deviceId) throws Exception {
+        puedeEditar(deviceId);
+        Device device = storage.getObject(Device.class, new Request(
+                new Columns.All(), new Condition.Equals("id", deviceId)));
+        if (device == null) {
+            throw new WebApplicationException(Response.Status.NOT_FOUND);
+        }
+        device.set(Destinatarios.MOTORISTA, getUserId());
+        storage.updateObject(device, new Request(
+                new Columns.Include("attributes"), new Condition.Equals("id", deviceId)));
+        cacheManager.invalidateObject(true, Device.class, deviceId, ObjectOperation.UPDATE);
+        sitiosPropios.olvidar(deviceId);
         return Response.noContent().build();
     }
 

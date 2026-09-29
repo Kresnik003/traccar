@@ -125,23 +125,35 @@ public class BuzonTelegram implements LifecycleObject {
         if (guardado != null) {
             return guardado;
         }
-        // offset -1 returns only the newest update.
-        long desde = procesarNada(cliente.leer(-1, 0));
+        // offset -1 returns only the newest update. If Telegram does not answer,
+        // nothing is saved: the next start is still the first one.
+        ClienteTelegram.Lectura lectura = cliente.leer(-1, 0);
+        if (!lectura.ok()) {
+            return 0;
+        }
+        long desde = procesarNada(lectura.updates());
         guardarUltimo(desde);
         return desde;
     }
 
     private void bucle() {
         long desde = inicio();
+        int fallos = 0;
         while (corriendo) {
             try {
-                long siguiente = procesar(cliente.leer(desde, ESPERA), desde);
+                ClienteTelegram.Lectura lectura = cliente.leer(desde, ESPERA);
+                if (!lectura.ok()) {
+                    // Refused or unreachable: logged by the client, and waited on
+                    // longer each time instead of a loop at full speed.
+                    fallos += 1;
+                    Thread.sleep(esperaTrasFallos(fallos));
+                    continue;
+                }
+                fallos = 0;
+                long siguiente = procesar(lectura.updates(), desde);
                 if (siguiente != desde) {
                     desde = siguiente;
                     guardarUltimo(desde);
-                } else {
-                    // An empty answer after a failure must not become a loop at full speed.
-                    Thread.sleep(1_000);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -150,6 +162,11 @@ public class BuzonTelegram implements LifecycleObject {
                 LOGGER.warn("Telegram inbox error", e);
             }
         }
+    }
+
+    /** 1 s, 2 s, 4 s... up to a minute. */
+    static long esperaTrasFallos(int fallos) {
+        return Math.min(60_000L, 1_000L << Math.min(Math.max(fallos - 1, 0), 16));
     }
 
     private static long procesarNada(JsonNode updates) {
