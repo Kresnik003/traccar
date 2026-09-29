@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
+import org.traccar.model.EstadoTelegram;
 import org.traccar.seguridad.Destinatarios;
 import org.traccar.storage.Storage;
 
@@ -151,6 +152,23 @@ public class BuzonTelegramTest {
                 + "{\"update_id\":2,\"callback_query\":{\"id\":\"cb\",\"data\":\"" + firma.firmar("g", 7)
                 + "\",\"message\":{\"chat\":{\"id\":900}}}}]"));
         verify(guardian).pulsado(7, "900");
+    }
+
+    @Test
+    public void onlyTheVeryFirstStartSkipsTheBacklog() throws Exception {
+        EstadoTelegram estado = new EstadoTelegram();
+        estado.setUltimo(0);
+        when(storage.getObject(eq(EstadoTelegram.class), any())).thenReturn(estado);
+        assertEquals(0, buzon().inicio());
+        verify(cliente, never()).leer(anyLong(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    public void theFirstStartSkipsWhatWasWrittenBefore() throws Exception {
+        when(storage.getObject(eq(EstadoTelegram.class), any())).thenReturn(null);
+        when(cliente.leer(-1, 0)).thenReturn(mapper.readTree("[{\"update_id\":41}]"));
+        assertEquals(42, buzon().inicio());
+        verify(storage).addObject(any(EstadoTelegram.class), any());
     }
 
 }
