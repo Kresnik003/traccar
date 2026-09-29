@@ -24,7 +24,7 @@ public class AlcanceServiciosTest {
 
     private static final List<Class<?>> SERVICIOS = List.of(
             BuzonTelegram.class, ClienteTelegram.class, EnlacesDirectos.class, GuardianGolpes.class,
-            ViajesFamilia.class, Destinatarios.class, SitiosPropios.class);
+            ViajesFamilia.class, Destinatarios.class, SitiosPropios.class, VigiaSeguridad.class);
 
     @Test
     public void noServiceDependsOnARequest() {

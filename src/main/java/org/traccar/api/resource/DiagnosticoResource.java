@@ -147,6 +147,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.telegram.BuzonTelegram",
         // 0064, lo que encontró la revisión del bloque de seguridad.
         "org.traccar.seguridad.ReglasGolpe#dondeEsta",
+        // 0067, la cadena de seguridad a la vista de Prometheus.
+        "org.traccar.seguridad.VigiaSeguridad#render",
     };
 
     private static final String[] CONFIG_KEYS = {

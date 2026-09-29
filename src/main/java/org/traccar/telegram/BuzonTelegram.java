@@ -70,6 +70,7 @@ public class BuzonTelegram implements LifecycleObject {
     private final Dormir dormir;
     private final Map<String, ReceptorBoton> receptores = new HashMap<>();
     private volatile boolean corriendo;
+    private volatile long ultimaLectura;
     private Thread hilo;
 
     @Inject
@@ -98,6 +99,15 @@ public class BuzonTelegram implements LifecycleObject {
         this.firma = firma;
         this.dormir = dormir;
         receptores.forEach(receptor -> this.receptores.put(receptor.accion(), receptor));
+    }
+
+    public boolean activo() {
+        return activo;
+    }
+
+    /** When the inbox last read the bot's updates, or zero if it never did (VigiaSeguridad). */
+    public long ultimaLectura() {
+        return ultimaLectura;
     }
 
     @Override
@@ -157,6 +167,7 @@ public class BuzonTelegram implements LifecycleObject {
                     continue;
                 }
                 fallos = 0;
+                ultimaLectura = System.currentTimeMillis();
                 long siguiente = procesar(lectura.updates(), desde);
                 if (siguiente != desde) {
                     desde = siguiente;

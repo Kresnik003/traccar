@@ -27,6 +27,7 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Response;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
+import org.traccar.seguridad.VigiaSeguridad;
 import org.traccar.session.ConnectionManager;
 import org.traccar.session.FleetMetrics;
 
@@ -69,6 +70,9 @@ public class MetricsResource {
     @Inject
     private DataSource dataSource;
 
+    @Inject
+    private VigiaSeguridad vigiaSeguridad;
+
     private static final String USER = "nordes-metrics";
 
     @PermitAll
@@ -81,7 +85,7 @@ public class MetricsResource {
         }
         fleetMetrics.setDevicesConnected(connectionManager::getDeviceSessionCount);
         fleetMetrics.setPool(() -> estadoPool(dataSource));
-        return Response.ok(fleetMetrics.render()).build();
+        return Response.ok(fleetMetrics.render() + vigiaSeguridad.render()).build();
     }
 
     static FleetMetrics.Pool estadoPool(DataSource dataSource) {
