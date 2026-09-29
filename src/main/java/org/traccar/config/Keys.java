@@ -1724,6 +1724,15 @@ public final class Keys {
             List.of(KeyType.CONFIG));
 
     /**
+     * Read the bot's inbox (getUpdates): emergency contacts sign up through it
+     * and the buttons of the safety messages answer through it. Off by default.
+     */
+    public static final ConfigKey<Boolean> TELEGRAM_BUZON = new BooleanConfigKey(
+            "telegram.buzon",
+            List.of(KeyType.CONFIG),
+            false);
+
+    /**
      * WhatsApp Cloud API permanent access token.
      */
     public static final ConfigKey<String> NOTIFICATOR_WHATSAPP_TOKEN = new StringConfigKey(

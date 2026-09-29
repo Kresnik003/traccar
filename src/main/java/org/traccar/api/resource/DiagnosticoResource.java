@@ -135,6 +135,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.database.CommandsManager#textoDeOrden",
         // 0054, una lectura de métricas no es un inicio de sesión.
         "org.traccar.api.security.SecurityRequestFilter#sinInicioDeSesion",
+        // 0056, contactos de emergencia que se dan de alta por el bot de Telegram.
+        "org.traccar.api.resource.ContactoResource",
     };
 
     private static final String[] CONFIG_KEYS = {
