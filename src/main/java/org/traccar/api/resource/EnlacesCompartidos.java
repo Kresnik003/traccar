@@ -60,7 +60,7 @@ public class EnlacesCompartidos extends BaseResource {
     private CacheManager cacheManager;
 
     /** Whether a new link outlives the shared user it reuses. */
-    static boolean alargar(Date actual, Date nueva) {
+    public static boolean alargar(Date actual, Date nueva) {
         return nueva != null && (actual == null || actual.before(nueva));
     }
 

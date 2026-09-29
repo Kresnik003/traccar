@@ -137,6 +137,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.api.security.SecurityRequestFilter#sinInicioDeSesion",
         // 0056, contactos de emergencia que se dan de alta por el bot de Telegram.
         "org.traccar.api.resource.ContactoResource",
+        // 0058, un enlace «sígueme» creado por el propio servidor.
+        "org.traccar.api.EnlacesDirectos",
     };
 
     private static final String[] CONFIG_KEYS = {
