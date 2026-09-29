@@ -2,7 +2,6 @@ package org.traccar.api;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.traccar.api.security.PermissionsService;
 import org.traccar.api.signature.TokenManager;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
@@ -50,8 +49,7 @@ public class EnlacesDirectosTest {
     private EnlacesDirectos enlaces(Storage storage) {
         Config config = new Config();
         config.setString(Keys.WEB_URL, "https://n.es/");
-        return spy(new EnlacesDirectos(
-                storage, mock(PermissionsService.class), mock(TokenManager.class), config, mock(CacheManager.class)));
+        return spy(new EnlacesDirectos(storage, mock(TokenManager.class), config, mock(CacheManager.class)));
     }
 
     @Test
@@ -82,8 +80,8 @@ public class EnlacesDirectosTest {
     @Test
     public void aTripOrACrashGetsASharedUserOfItsOwn() throws Exception {
         Storage storage = mock(Storage.class);
-        PermissionsService permissionsService = mock(PermissionsService.class);
-        when(permissionsService.getServer()).thenReturn(new Server());
+        CacheManager cacheManager = mock(CacheManager.class);
+        when(cacheManager.getServer()).thenReturn(new Server());
         TokenManager tokenManager = mock(TokenManager.class);
         when(tokenManager.generateToken(anyLong(), any())).thenReturn("t");
         Device device = new Device();
@@ -98,8 +96,7 @@ public class EnlacesDirectosTest {
         when(storage.getObjects(eq(User.class), any())).thenReturn(List.of(dueno));
         Config config = new Config();
         config.setString(Keys.WEB_URL, "https://n.es");
-        EnlacesDirectos enlaces = new EnlacesDirectos(
-                storage, permissionsService, tokenManager, config, mock(CacheManager.class));
+        EnlacesDirectos enlaces = new EnlacesDirectos(storage, tokenManager, config, cacheManager);
 
         var enlace = enlaces.enlaceDeEquipo(8, CADUCA, "viaje", 5);
 
@@ -115,8 +112,7 @@ public class EnlacesDirectosTest {
     public void cuttingALinkDeletesOnlyItsSharedUser() throws Exception {
         Storage storage = mock(Storage.class);
         CacheManager cacheManager = mock(CacheManager.class);
-        EnlacesDirectos enlaces = new EnlacesDirectos(
-                storage, mock(PermissionsService.class), mock(TokenManager.class), new Config(), cacheManager);
+        EnlacesDirectos enlaces = new EnlacesDirectos(storage, mock(TokenManager.class), new Config(), cacheManager);
         User share = usuario(77, true, false);
         when(storage.getObject(eq(User.class), any())).thenReturn(share);
         enlaces.cortar(77);
@@ -128,8 +124,7 @@ public class EnlacesDirectosTest {
     public void aRealUserIsNeverCut() throws Exception {
         Storage storage = mock(Storage.class);
         EnlacesDirectos enlaces = new EnlacesDirectos(
-                storage, mock(PermissionsService.class), mock(TokenManager.class), new Config(),
-                mock(CacheManager.class));
+                storage, mock(TokenManager.class), new Config(), mock(CacheManager.class));
         when(storage.getObject(eq(User.class), any())).thenReturn(usuario(2, false, false));
         enlaces.cortar(2);
         verify(storage, never()).removeObject(any(), any());
