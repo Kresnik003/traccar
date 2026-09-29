@@ -20,7 +20,6 @@ import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.api.resource.EnlacesCompartidos;
-import org.traccar.api.security.PermissionsService;
 import org.traccar.api.signature.TokenManager;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
@@ -62,17 +61,14 @@ public class EnlacesDirectos {
     }
 
     private final Storage storage;
-    private final PermissionsService permissionsService;
     private final TokenManager tokenManager;
     private final Config config;
     private final CacheManager cacheManager;
 
     @Inject
     public EnlacesDirectos(
-            Storage storage, PermissionsService permissionsService, TokenManager tokenManager, Config config,
-            CacheManager cacheManager) {
+            Storage storage, TokenManager tokenManager, Config config, CacheManager cacheManager) {
         this.storage = storage;
-        this.permissionsService = permissionsService;
         this.tokenManager = tokenManager;
         this.config = config;
         this.cacheManager = cacheManager;
@@ -94,7 +90,10 @@ public class EnlacesDirectos {
             User user, Class<? extends BaseModel> clazz, long id, Date expiration, String sufijo, String etiqueta)
             throws StorageException, GeneralSecurityException, IOException {
 
-        if (permissionsService.getServer().getBoolean(Keys.DEVICE_SHARE_DISABLE.getKey())) {
+        // From the cache and not from PermissionsService: that one lives inside an HTTP
+        // request, and this service is also used by the server on its own.
+        if (cacheManager.getServer() != null
+                && cacheManager.getServer().getBoolean(Keys.DEVICE_SHARE_DISABLE.getKey())) {
             throw new SecurityException("Sharing is disabled");
         }
         if (user.getTemporary()) {
