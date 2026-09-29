@@ -25,6 +25,7 @@ import org.traccar.schedule.ScheduleManager;
 import org.traccar.storage.DatabaseModule;
 import org.traccar.web.WebModule;
 import org.traccar.web.WebServer;
+import org.traccar.telegram.BuzonTelegram;
 
 import java.io.File;
 import java.lang.management.ManagementFactory;
@@ -120,7 +121,8 @@ public final class Main {
 
             var services = new ArrayList<LifecycleObject>();
             for (var clazz : List.of(
-                    ScheduleManager.class, ServerManager.class, WebServer.class, BroadcastService.class)) {
+                    ScheduleManager.class, ServerManager.class, WebServer.class, BroadcastService.class,
+                    BuzonTelegram.class)) {
                 var service = injector.getInstance(clazz);
                 if (service != null) {
                     service.start();

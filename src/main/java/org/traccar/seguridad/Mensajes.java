@@ -85,4 +85,18 @@ public final class Mensajes {
         return sitio != null ? persona + " ha llegado bien a " + sitio + "." : persona + " ha llegado bien.";
     }
 
+    public static String bienvenida(String persona, String moto) {
+        return "Hola. Ahora eres contacto de emergencia de " + persona + " (" + moto + ") en Nordés. "
+                + "Te escribiremos aquí si detectamos un golpe y no responde, y cuando salga de viaje y llegue. "
+                + "Nordés no avisa al 112. Para dejar de recibir avisos, escribe /baja.";
+    }
+
+    public static String codigoNoValido() {
+        return "Este enlace ha caducado o ya se usó. Pide uno nuevo a quien te lo mandó.";
+    }
+
+    public static String baja() {
+        return "Hecho. Ya no recibirás avisos de Nordés. Si quieres volver, pide un enlace nuevo.";
+    }
+
 }

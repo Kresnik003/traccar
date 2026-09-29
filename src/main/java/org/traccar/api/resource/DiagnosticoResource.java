@@ -143,6 +143,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.seguridad.GuardianGolpes",
         // 0060, «ha salido» y «ha llegado» para los contactos.
         "org.traccar.seguridad.ViajesFamilia",
+        // 0061, el buzón del bot: altas de contactos y botones.
+        "org.traccar.telegram.BuzonTelegram",
     };
 
     private static final String[] CONFIG_KEYS = {
