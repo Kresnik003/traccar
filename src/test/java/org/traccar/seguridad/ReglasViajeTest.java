@@ -96,4 +96,28 @@ public class ReglasViajeTest {
         assertNull(ReglasViaje.quietaDesde(List.of()));
     }
 
+    @Test
+    public void fifteenKmhIsRidingAndJustBelowIsNot() {
+        assertTrue(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), true, kmh(15)));
+        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), true, kmh(14.9)));
+    }
+
+    @Test
+    public void ridingAcrossTheSamePlaceIsNotLeavingIt() {
+        // A big place (an industrial estate, a campus): riding inside it at 30 km/h is not having left.
+        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.of(casa), true, kmh(30)));
+    }
+
+    @Test
+    public void threeKmhWithTheIgnitionOffStillCountsAsStill() {
+        // The GPS reads a few km/h on a parked bike: up to 3 km/h it is still.
+        assertEquals(T - 60_000, ReglasViaje.quietaDesde(List.of(pos(0, false, 3), pos(60_000, false, 3))));
+    }
+
+    @Test
+    public void aBikePushedWithTheIgnitionOffIsNotStill() {
+        // Newest first: still now, but a minute ago it moved at 10 km/h with the ignition off.
+        assertEquals(T, ReglasViaje.quietaDesde(List.of(pos(0, false, 0), pos(60_000, false, 10))));
+    }
+
 }

@@ -36,4 +36,33 @@ public class VentanaAccidenteTest {
         assertTrue(v.enviar(6, "telegram", 8, t + VentanaAccidente.VENTANA + 1), "pasada la ventana, es otro");
     }
 
+    @Test
+    public void testSoloUnaAlarmaEsUnAccidente() {
+        // Otro tipo de evento con el atributo de alarma no es un choque.
+        Event encendido = new Event(Event.TYPE_IGNITION_ON, 8);
+        encendido.set(Position.KEY_ALARM, "accident");
+        assertFalse(VentanaAccidente.esAccidente(encendido));
+        // Y una alarma sin el atributo, tampoco (ni revienta).
+        assertFalse(VentanaAccidente.esAccidente(new Event(Event.TYPE_ALARM, 8)));
+    }
+
+    @Test
+    public void testLaVentanaAcabaALosDiezMinutosJustos() {
+        VentanaAccidente v = new VentanaAccidente();
+        long t = 1_000_000L;
+        assertTrue(v.enviar(6, "telegram", 8, t));
+        assertTrue(v.enviar(6, "telegram", 8, t + VentanaAccidente.VENTANA), "a los 10 min justos, es otro choque");
+    }
+
+    @Test
+    public void testLimpiarNoOlvidaUnChoqueEnCurso() {
+        // Con más de 1000 recordados se tiran los viejos, nunca uno de hace un segundo.
+        VentanaAccidente v = new VentanaAccidente();
+        long t = 1_000_000L;
+        for (int moto = 0; moto <= 1000; moto++) {
+            assertTrue(v.enviar(6, "telegram", moto, t));
+        }
+        assertFalse(v.enviar(6, "telegram", 0, t + 1_000), "el mismo choque, un segundo después");
+    }
+
 }

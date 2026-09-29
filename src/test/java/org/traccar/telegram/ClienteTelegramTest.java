@@ -12,10 +12,15 @@ import org.traccar.config.Config;
 import org.traccar.config.Keys;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -34,6 +39,10 @@ public class ClienteTelegramTest {
     private final List<Object> cuerpos = new ArrayList<>();
 
     private ClienteTelegram cliente(int estado, String cuerpo) {
+        return cliente(estado, cuerpo, "http://falso/bot");
+    }
+
+    private ClienteTelegram cliente(int estado, String cuerpo, String base) {
         client = mock(Client.class);
         WebTarget target = mock(WebTarget.class);
         Invocation.Builder builder = mock(Invocation.Builder.class);
@@ -51,8 +60,39 @@ public class ClienteTelegramTest {
         when(response.readEntity(String.class)).thenReturn(cuerpo);
         Config config = new Config();
         config.setString(Keys.NOTIFICATOR_TELEGRAM_KEY, "123:abc");
-        config.setString(Keys.NOTIFICATOR_TELEGRAM_BASE_URL, "http://falso/bot");
+        if (base != null) {
+            config.setString(Keys.NOTIFICATOR_TELEGRAM_BASE_URL, base);
+        }
         return new ClienteTelegram(config, client, client, new ObjectMapper());
+    }
+
+    /** What the client writes to Traccar's log while {@code accion} runs. */
+    private static List<String> registro(Runnable accion) {
+        Logger logger = Logger.getLogger(ClienteTelegram.class.getName());
+        List<String> lineas = new ArrayList<>();
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord linea) {
+                lineas.add(linea.getMessage()
+                        + (linea.getParameters() != null ? Arrays.toString(linea.getParameters()) : "")
+                        + (linea.getThrown() != null ? linea.getThrown().toString() : ""));
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        logger.addHandler(handler);
+        try {
+            accion.run();
+        } finally {
+            logger.removeHandler(handler);
+        }
+        return lineas;
     }
 
     @Test
@@ -127,4 +167,87 @@ public class ClienteTelegramTest {
         assertEquals("Conflict: terminated by other getUpdates request", lectura.descripcion());
         assertEquals(0, lectura.updates().size());
     }
+
+    @Test
+    public void withoutABaseUrlItTalksToTelegramItself() {
+        cliente(200, "{\"ok\":true}", null).enviar("42", "hola", List.of());
+        assertEquals("https://api.telegram.org/bot123:abc/sendMessage", urls.get(0));
+    }
+
+    @Test
+    public void onlyA2xxReadIsAnInbox() {
+        // 199 and 300 are refusals: no updates, and the reason is kept.
+        for (int estado : new int[] {199, 300}) {
+            var lectura = cliente(estado, "{\"ok\":false,\"description\":\"motivo\",\"result\":[{\"update_id\":5}]}")
+                    .leer(0, 25);
+            assertFalse(lectura.ok(), "HTTP " + estado);
+            assertEquals(0, lectura.updates().size(), "HTTP " + estado);
+            assertEquals("motivo", lectura.descripcion(), "HTTP " + estado);
+        }
+        for (int estado : new int[] {200, 299}) {
+            var lectura = cliente(estado, "{\"ok\":true,\"result\":[{\"update_id\":5}]}").leer(0, 25);
+            assertTrue(lectura.ok(), "HTTP " + estado);
+            assertEquals(5, lectura.updates().get(0).path("update_id").asLong(), "HTTP " + estado);
+            assertNull(lectura.descripcion(), "HTTP " + estado);
+        }
+    }
+
+    @Test
+    public void theDescriptionExplainsAFailureAndOnlyAFailure() {
+        String cuerpo = "{\"ok\":false,\"description\":\"motivo\"}";
+        for (int estado : new int[] {199, 300}) {
+            var respuesta = cliente(estado, cuerpo).enviar("42", "hola", List.of());
+            assertFalse(respuesta.ok(), "HTTP " + estado);
+            assertEquals("motivo", respuesta.descripcion(), "HTTP " + estado);
+        }
+        for (int estado : new int[] {200, 299}) {
+            var respuesta = cliente(estado, cuerpo).enviar("42", "hola", List.of());
+            assertTrue(respuesta.ok(), "HTTP " + estado);
+            assertNull(respuesta.descripcion(), "HTTP " + estado);
+        }
+    }
+
+    @Test
+    public void okMeansA2xxAndNothingElse() {
+        for (int estado : new int[] {0, 199, 300, 403, 409}) {
+            assertFalse(new ClienteTelegram.Lectura(estado, null, null).ok(), "HTTP " + estado);
+            assertFalse(new RespuestaTelegram(estado, null).ok(), "HTTP " + estado);
+        }
+        for (int estado : new int[] {200, 204, 299}) {
+            assertTrue(new ClienteTelegram.Lectura(estado, null, null).ok(), "HTTP " + estado);
+            assertTrue(new RespuestaTelegram(estado, null).ok(), "HTTP " + estado);
+        }
+    }
+
+    @Test
+    public void aFailedReadIsReportedAndNeverShowsTheToken() {
+        // The token travels in the URL, and a network exception may quote it.
+        ClienteTelegram c = cliente(200, "{}");
+        when(client.target(anyString())).thenThrow(
+                new ProcessingException("POST http://falso/bot123:abc/getUpdates: Connection refused"));
+        List<ClienteTelegram.Lectura> lecturas = new ArrayList<>();
+        List<String> lineas = registro(() -> lecturas.add(c.leer(7, 25)));
+        var lectura = lecturas.get(0);
+        assertFalse(lectura.ok());
+        assertEquals(0, lectura.estado());
+        // An empty list, not null: the inbox walks it.
+        assertTrue(lectura.updates().isArray());
+        assertEquals(0, lectura.updates().size());
+        assertEquals("ProcessingException", lectura.descripcion());
+        assertFalse(lineas.isEmpty(), "the failure did not reach the log");
+        lineas.forEach(linea -> assertFalse(linea.contains("123:abc"), linea));
+    }
+
+    @Test
+    public void aFailedSendNeverShowsTheTokenEither() {
+        ClienteTelegram c = cliente(200, "{}");
+        when(client.target(anyString())).thenThrow(
+                new ProcessingException("POST http://falso/bot123:abc/sendMessage: Connection refused"));
+        List<RespuestaTelegram> respuestas = new ArrayList<>();
+        List<String> lineas = registro(() -> respuestas.add(c.enviar("42", "hola", List.of())));
+        assertEquals("ProcessingException", respuestas.get(0).descripcion());
+        assertFalse(lineas.isEmpty(), "the failure did not reach the log");
+        lineas.forEach(linea -> assertFalse(linea.contains("123:abc"), linea));
+    }
+
 }

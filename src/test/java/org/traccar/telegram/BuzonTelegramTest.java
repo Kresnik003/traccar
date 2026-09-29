@@ -9,6 +9,8 @@ import org.traccar.model.Device;
 import org.traccar.model.EstadoTelegram;
 import org.traccar.seguridad.Destinatarios;
 import org.traccar.storage.Storage;
+import org.traccar.storage.StorageException;
+import org.traccar.storage.query.Request;
 
 import java.util.Date;
 import java.util.List;
@@ -16,7 +18,9 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -82,8 +86,32 @@ public class BuzonTelegramTest {
         assertEquals("901", captor.getValue().getChatId());
         assertNotNull(captor.getValue().getConfirmado());
         assertNull(captor.getValue().getCodigo());
-        verify(cliente).enviar(eq("901"), contains("contacto de emergencia de Juan"), anyList());
+        verify(cliente).enviar(eq("901"), contains("contacto de emergencia de Juan (Ducati)"), anyList());
         verify(cliente).enviar(eq("901"), contains("/baja"), anyList());
+    }
+
+    @Test
+    public void aBikeThatIsGoneIsCalledJustMoto() throws Exception {
+        when(storage.getObject(eq(Contacto.class), any())).thenReturn(pendiente("C0d"));
+        when(storage.getObject(eq(Device.class), any())).thenReturn(null);
+        procesar("[{\"update_id\":1,\"message\":{\"chat\":{\"id\":901},\"text\":\"/start C0d\"}}]");
+        verify(cliente).enviar(eq("901"), contains("contacto de emergencia de Juan (moto)"), anyList());
+    }
+
+    @Test
+    public void signingUpAgainAfterBlockingTheBotGetsTheWarningsBack() throws Exception {
+        // A 403 (the bot was blocked) marks the contact as refused and the
+        // warnings skip it. A new sign-up is a new "yes": the mark goes, and
+        // the column is written, or the old refusal would stay in the table.
+        Contacto contacto = pendiente("C0d");
+        contacto.setRechazado(new Date());
+        when(storage.getObject(eq(Contacto.class), any())).thenReturn(contacto);
+        procesar("[{\"update_id\":1,\"message\":{\"chat\":{\"id\":901},\"text\":\"/start C0d\"}}]");
+        ArgumentCaptor<Contacto> captor = ArgumentCaptor.forClass(Contacto.class);
+        ArgumentCaptor<Request> request = ArgumentCaptor.forClass(Request.class);
+        verify(storage).updateObject(captor.capture(), request.capture());
+        assertNull(captor.getValue().getRechazado());
+        assertTrue(request.getValue().getColumns().getColumns(Contacto.class, "set").contains("rechazado"));
     }
 
     @Test
@@ -132,6 +160,15 @@ public class BuzonTelegramTest {
     }
 
     @Test
+    public void aSignedButtonOfAnActionNobodyHandlesIsAnsweredAnyway() throws Exception {
+        // Telegram keeps a spinner on a button until it gets an answer.
+        procesar("[{\"update_id\":1,\"callback_query\":{\"id\":\"cb\",\"data\":\"" + firma.firmar("x", 7)
+                + "\",\"message\":{\"chat\":{\"id\":900}}}}]");
+        verify(guardian, never()).pulsado(anyLong(), anyString());
+        verify(cliente).responderBoton("cb", "Este botón ya no sirve.");
+    }
+
+    @Test
     public void aForgedButtonReachesNobody() throws Exception {
         procesar("[{\"update_id\":1,\"callback_query\":{\"id\":\"cb\",\"data\":\"g:7:0000000000000000\","
                 + "\"message\":{\"chat\":{\"id\":900}}}}]");
@@ -160,7 +197,26 @@ public class BuzonTelegramTest {
         estado.setUltimo(0);
         when(storage.getObject(eq(EstadoTelegram.class), any())).thenReturn(estado);
         assertEquals(0, buzon().inicio());
-        verify(cliente, never()).leer(anyLong(), org.mockito.ArgumentMatchers.anyInt());
+        verify(cliente, never()).leer(anyLong(), anyInt());
+    }
+
+    @Test
+    public void aRestartGoesOnFromTheSavedOffset() throws Exception {
+        EstadoTelegram estado = new EstadoTelegram();
+        estado.setUltimo(57);
+        when(storage.getObject(eq(EstadoTelegram.class), any())).thenReturn(estado);
+        assertEquals(57, buzon().inicio());
+        verify(cliente, never()).leer(anyLong(), anyInt());
+        verify(storage, never()).addObject(any(), any());
+        verify(storage, never()).updateObject(any(), any());
+    }
+
+    @Test
+    public void whenTheSavedOffsetCannotBeReadItDoesNotSkipAnything() throws Exception {
+        // Unknown is not "first start": skipping could lose a sign-up.
+        when(storage.getObject(eq(EstadoTelegram.class), any())).thenThrow(new StorageException("caída"));
+        assertEquals(0, buzon().inicio());
+        verify(cliente, never()).leer(anyLong(), anyInt());
     }
 
     @Test
@@ -169,7 +225,21 @@ public class BuzonTelegramTest {
         when(cliente.leer(-1, 0)).thenReturn(
                 new ClienteTelegram.Lectura(200, mapper.readTree("[{\"update_id\":41}]"), null));
         assertEquals(42, buzon().inicio());
-        verify(storage).addObject(any(EstadoTelegram.class), any());
+        // The one row of nx_telegram, found later by its id.
+        ArgumentCaptor<EstadoTelegram> captor = ArgumentCaptor.forClass(EstadoTelegram.class);
+        verify(storage).addObject(captor.capture(), any());
+        assertEquals(EstadoTelegram.FILA, captor.getValue().getId());
+        assertEquals(42, captor.getValue().getUltimo());
+    }
+
+    @Test
+    public void aFirstStartWithoutTelegramSavesNothingAndIsStillTheFirst() throws Exception {
+        when(storage.getObject(eq(EstadoTelegram.class), any())).thenReturn(null);
+        when(cliente.leer(-1, 0)).thenReturn(new ClienteTelegram.Lectura(
+                409, mapper.createArrayNode(), "Conflict: terminated by other getUpdates request"));
+        assertEquals(0, buzon().inicio());
+        verify(storage, never()).addObject(any(), any());
+        verify(storage, never()).updateObject(any(), any());
     }
 
     @Test

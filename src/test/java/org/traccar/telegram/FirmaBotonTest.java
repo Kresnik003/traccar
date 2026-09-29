@@ -36,6 +36,25 @@ public class FirmaBotonTest {
     }
 
     @Test
+    public void malformedDataDoesNotPass() {
+        String dato = firma.firmar("g", 7);
+        String mac = dato.substring(dato.lastIndexOf(':') + 1);
+        assertTrue(firma.comprobar("g:7").isEmpty());
+        assertTrue(firma.comprobar(dato + ":extra").isEmpty());
+        assertTrue(firma.comprobar("g:siete:" + mac).isEmpty());
+        assertTrue(firma.comprobar("g:12345678901234567890:" + mac).isEmpty());
+        assertTrue(firma.comprobar("").isEmpty());
+    }
+
+    @Test
+    public void onlyPlainDigitsAreAnId() {
+        // The ids are rows of the database. Even signed by the server itself, a
+        // negative one is not a valid button: the format is checked before
+        // anything else.
+        assertTrue(firma.comprobar(firma.firmar("g", -5)).isEmpty());
+    }
+
+    @Test
     public void itFitsInCallbackData() {
         assertTrue(firma.firmar("g", Long.MAX_VALUE).length() <= 64);
     }

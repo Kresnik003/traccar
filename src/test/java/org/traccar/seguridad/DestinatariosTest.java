@@ -1,6 +1,7 @@
 package org.traccar.seguridad;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
 import org.traccar.model.Quedada;
@@ -16,11 +17,13 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -135,6 +138,111 @@ public class DestinatariosTest {
         var todos = new Destinatarios(storage(2L, List.of(usuario(2, "900"), usuario(6, "906")))).de(8);
         assertEquals(List.of("901", "906", "905"), todos.stream().map(Destinatarios.Destinatario::chatId).toList());
         assertEquals("Ruta del Eume", todos.get(2).quedada());
+    }
+
+    private static List<String> chats(List<Destinatarios.Destinatario> lista) {
+        return lista.stream().map(Destinatarios.Destinatario::chatId).toList();
+    }
+
+    @Test
+    public void aBikeThatIsGoneStillFindsItsOnlyDirectUser() throws Exception {
+        Storage storage = storage(null, List.of(usuario(2, "900")));
+        when(storage.getObject(eq(Device.class), any())).thenReturn(null);
+        assertEquals(Optional.of("900"), new Destinatarios(storage).chatDelMotorista(8));
+    }
+
+    @Test
+    public void aBlankChatIsNoChat() throws Exception {
+        Destinatarios destinatarios = new Destinatarios(storage(null, List.of(usuario(2, "  "))));
+        assertTrue(destinatarios.motorista(8).isPresent());
+        assertTrue(destinatarios.chatDelMotorista(8).isEmpty());
+    }
+
+    @Test
+    public void aRiderWithoutANameIsCalledYourContact() throws Exception {
+        User sinNombre = usuario(2, "900");
+        sinNombre.setName("  ");
+        assertEquals("tu contacto", new Destinatarios(storage(null, List.of(sinNombre))).persona(8));
+        sinNombre.setName(null);
+        assertEquals("tu contacto", new Destinatarios(storage(null, List.of(sinNombre))).persona(8));
+        assertEquals("tu contacto", new Destinatarios(storage(null, List.of())).persona(8));
+    }
+
+    @Test
+    public void aConfirmedContactWithoutAChatIsSkippedNotACrash() throws Exception {
+        Storage storage = storage(2L, List.of(usuario(2, "900")));
+        when(storage.getObjects(eq(Contacto.class), any())).thenReturn(List.of(
+                contacto(1, null, true, false), contacto(2, "901", true, false)));
+        assertEquals(List.of("901"), chats(new Destinatarios(storage).contactos(8)));
+    }
+
+    @Test
+    public void aRideThatIsNotUnderwayWarnsNobodyOfIt() throws Exception {
+        Storage storage = storage(2L, List.of(usuario(2, "900")));
+        when(storage.getObject(eq(Quedada.class), any())).thenReturn(null);
+        assertEquals(List.of("901", "906"), chats(new Destinatarios(storage).de(8)));
+    }
+
+    @Test
+    public void aDeletedOrDisabledCompanionIsSkipped() throws Exception {
+        Storage borrado = storage(2L, List.of(usuario(2, "900")));
+        when(borrado.getObject(eq(User.class), any())).thenReturn(null, usuario(2, "900"));
+        assertEquals(List.of("901", "906"), chats(new Destinatarios(borrado).de(8)));
+
+        Storage apagado = storage(2L, List.of(usuario(2, "900")));
+        User deshabilitado = usuario(5, "905");
+        deshabilitado.setDisabled(true);
+        when(apagado.getObject(eq(User.class), any())).thenReturn(deshabilitado, usuario(2, "900"));
+        assertEquals(List.of("901", "906"), chats(new Destinatarios(apagado).de(8)));
+    }
+
+    @Test
+    public void aCompanionWithoutTelegramIsSkipped() throws Exception {
+        Storage sinChat = storage(2L, List.of(usuario(2, "900")));
+        when(sinChat.getObject(eq(User.class), any())).thenReturn(usuario(5, null), usuario(2, "900"));
+        assertEquals(List.of("901", "906"), chats(new Destinatarios(sinChat).de(8)));
+
+        Storage enBlanco = storage(2L, List.of(usuario(2, "900")));
+        when(enBlanco.getObject(eq(User.class), any())).thenReturn(usuario(5, " "), usuario(2, "900"));
+        assertEquals(List.of("901", "906"), chats(new Destinatarios(enBlanco).de(8)));
+    }
+
+    @Test
+    public void aContactWhoBlockedTheBotIsMarkedRejected() throws Exception {
+        Storage storage = mock(Storage.class);
+        new Destinatarios(storage).rechazar(4);
+        ArgumentCaptor<Contacto> contacto = ArgumentCaptor.forClass(Contacto.class);
+        ArgumentCaptor<Request> request = ArgumentCaptor.forClass(Request.class);
+        verify(storage).updateObject(contacto.capture(), request.capture());
+        assertEquals(4, contacto.getValue().getId());
+        assertNotNull(contacto.getValue().getRechazado());
+        Condition.Equals donde = (Condition.Equals) request.getValue().getCondition();
+        assertEquals("id", donde.getColumn());
+        assertEquals(4L, donde.getValue());
+    }
+
+    @Test
+    public void followMeLinksAndDisabledUsersAreNeverTheRider() throws Exception {
+        // Elegido el 50, que es un enlace de «sígueme»: no hay motorista.
+        assertTrue(new Destinatarios(storage(50L, List.of())).motorista(8).isEmpty());
+        // Sin elegir, Juan y un enlace, o Juan y alguien deshabilitado: el motorista es Juan.
+        User enlace = usuario(51, "951");
+        enlace.setTemporary(true);
+        User apagado = usuario(52, "952");
+        apagado.setDisabled(true);
+        assertEquals(Optional.of("900"),
+                new Destinatarios(storage(null, List.of(usuario(2, "900"), enlace))).chatDelMotorista(8));
+        assertEquals(Optional.of("900"),
+                new Destinatarios(storage(null, List.of(usuario(2, "900"), apagado))).chatDelMotorista(8));
+    }
+
+    @Test
+    public void aRiderWhoIsTheirOwnContactIsNotWarnedOfTheirOwnCrash() throws Exception {
+        Storage storage = storage(2L, List.of(usuario(2, "900")));
+        when(storage.getObjects(eq(Contacto.class), any())).thenReturn(List.of(
+                contacto(1, "900", true, false), contacto(2, "901", true, false)));
+        assertEquals(List.of("901"), chats(new Destinatarios(storage).contactos(8)));
+        assertEquals(List.of("901", "905"), chats(new Destinatarios(storage).de(8)));
     }
 
 }

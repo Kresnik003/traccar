@@ -51,6 +51,19 @@ public class CodigosAltaTest {
     }
 
     @Test
+    public void aCodeWithoutAnExpiryIsNotValid() {
+        Contacto contacto = pendiente(1000);
+        contacto.setCaduca(null);
+        assertFalse(CodigosAlta.vale(contacto, AHORA));
+    }
+
+    @Test
+    public void aCodeExpiresAtItsVeryMoment() {
+        assertFalse(CodigosAlta.vale(pendiente(0), AHORA));
+        assertTrue(CodigosAlta.vale(pendiente(1), AHORA));
+    }
+
+    @Test
     public void aUsedCodeIsNotValid() {
         Contacto contacto = pendiente(1000);
         contacto.setConfirmado(AHORA);
