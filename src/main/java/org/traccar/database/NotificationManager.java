@@ -40,6 +40,7 @@ import org.traccar.storage.Storage;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Request;
+import org.traccar.seguridad.GuardianGolpes;
 
 import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
@@ -73,6 +74,9 @@ public class NotificationManager {
 
     @Inject
     private BandejaAvisos bandejaAvisos;
+
+    @Inject
+    private GuardianGolpes guardianGolpes;
 
     @Inject
     public NotificationManager(
@@ -109,6 +113,9 @@ public class NotificationManager {
         }
 
         forwardEvent(event, position);
+
+        // Before the cut for old events: the guard has its own, shorter limit.
+        guardianGolpes.alEvento(event, position);
 
         if (System.currentTimeMillis() - event.getEventTime().getTime() > timeThreshold) {
             LOGGER.info("Skipping notifications for old event evento={} tipo={} equipo={} motivo=viejo",

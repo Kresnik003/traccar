@@ -37,13 +37,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * absorbed - whatever rule it came through - and no summary follows. The
  * events themselves are still stored for the reports and the inbox.
  */
-final class VentanaAccidente {
+public final class VentanaAccidente {
 
     static final long VENTANA = 10 * 60 * 1000L;
 
     private final Map<String, Long> enviados = new ConcurrentHashMap<>();
 
-    static boolean esAccidente(Event event) {
+    public static boolean esAccidente(Event event) {
         if (!Event.TYPE_ALARM.equals(event.getType())) {
             return false;
         }
