@@ -58,6 +58,35 @@ public class CommandsManager implements BroadcastInterface {
     private final CacheManager cacheManager;
     private final CommandSenderManager commandSenderManager;
 
+    /**
+     * What was sent, on the queuedCommandSent event. The event only carried the id
+     * of the queued command, and the row is deleted right here, so once it had left
+     * nobody could tell which command it was: the notification said "a queued
+     * command was sent" and nothing else.
+     */
+    public static final String KEY_COMMAND = "command";
+
+    /** The width a text may take in the event attributes, next to everything else. */
+    static final int TEXTO_MAXIMO = 512;
+
+    /**
+     * The command as a person wrote it: the text of a custom command
+     * ("setparam 113:1"), or the type of any other ("engineStop").
+     */
+    static String textoDeOrden(QueuedCommand command) {
+        String texto = command.getType();
+        if (Command.TYPE_CUSTOM.equals(command.getType())) {
+            String data = command.getString(Command.KEY_DATA);
+            if (data != null && !data.isBlank()) {
+                texto = data;
+            }
+        }
+        if (texto != null && texto.length() > TEXTO_MAXIMO) {
+            texto = texto.substring(0, TEXTO_MAXIMO);
+        }
+        return texto;
+    }
+
     @Inject
     public CommandsManager(
             Storage storage, ServerManager serverManager, @Nullable SmsManager smsManager,
@@ -139,6 +168,7 @@ public class CommandsManager implements BroadcastInterface {
 
                 Event event = new Event(Event.TYPE_QUEUED_COMMAND_SENT, command.getDeviceId());
                 event.set("id", command.getId());
+                event.set(KEY_COMMAND, textoDeOrden(command));
                 events.put(event, null);
             }
             notificationManager.updateEvents(events);
