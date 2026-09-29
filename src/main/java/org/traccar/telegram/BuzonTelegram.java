@@ -114,14 +114,25 @@ public class BuzonTelegram implements LifecycleObject {
         }
     }
 
-    private void bucle() {
-        long desde = leerUltimo();
-        if (desde == 0) {
-            // First start: whatever somebody wrote to the bot before today is
-            // not processed. offset -1 returns only the newest update.
-            desde = procesarNada(cliente.leer(-1, 0));
-            guardarUltimo(desde);
+    /**
+     * Where to start reading. Only the very first start - no row yet - skips
+     * what somebody wrote to the bot before today; after that, what arrives
+     * while Traccar is stopped is read when it comes back, even if the bot had
+     * never received anything (offset 0).
+     */
+    long inicio() {
+        Long guardado = leerUltimo();
+        if (guardado != null) {
+            return guardado;
         }
+        // offset -1 returns only the newest update.
+        long desde = procesarNada(cliente.leer(-1, 0));
+        guardarUltimo(desde);
+        return desde;
+    }
+
+    private void bucle() {
+        long desde = inicio();
         while (corriendo) {
             try {
                 long siguiente = procesar(cliente.leer(desde, ESPERA), desde);
@@ -212,14 +223,17 @@ public class BuzonTelegram implements LifecycleObject {
         cliente.responderBoton(pulsacion.callbackId(), respuesta != null ? respuesta : "Este botón ya no sirve.");
     }
 
-    private long leerUltimo() {
+    /** The saved offset, or null if the inbox never ran here. */
+    private Long leerUltimo() {
         try {
             EstadoTelegram estado = storage.getObject(EstadoTelegram.class, new Request(
                     new Columns.All(), new Condition.Equals("id", EstadoTelegram.FILA)));
-            return estado != null ? estado.getUltimo() : 0;
+            return estado != null ? estado.getUltimo() : null;
         } catch (StorageException e) {
+            // Unknown is not "first start": reading from 0 repeats nothing that
+            // Telegram has not already dropped, skipping could lose a sign-up.
             LOGGER.warn("Telegram inbox state could not be read", e);
-            return 0;
+            return 0L;
         }
     }
 
