@@ -131,6 +131,10 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.helper.ClienteFota",
         // 0052, la respuesta a un mando no se filtra.
         "org.traccar.handler.FilterHandler#isCommandResult",
+        // 0053, el aviso de un mando en cola dice qué se envió.
+        "org.traccar.database.CommandsManager#textoDeOrden",
+        // 0054, una lectura de métricas no es un inicio de sesión.
+        "org.traccar.api.security.SecurityRequestFilter#sinInicioDeSesion",
     };
 
     private static final String[] CONFIG_KEYS = {
