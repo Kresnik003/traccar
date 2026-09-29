@@ -139,6 +139,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.api.resource.ContactoResource",
         // 0058, un enlace «sígueme» creado por el propio servidor.
         "org.traccar.api.EnlacesDirectos",
+        // 0059, el aviso a los contactos tras un golpe sin respuesta.
+        "org.traccar.seguridad.GuardianGolpes",
     };
 
     private static final String[] CONFIG_KEYS = {
