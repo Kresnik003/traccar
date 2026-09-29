@@ -16,18 +16,12 @@
 package org.traccar.api.resource;
 
 import org.traccar.api.BaseResource;
-import org.traccar.api.signature.TokenManager;
-import org.traccar.config.Config;
-import org.traccar.config.Keys;
+import org.traccar.api.EnlacesDirectos;
 import org.traccar.model.BaseModel;
 import org.traccar.model.Device;
 import org.traccar.model.Group;
-import org.traccar.model.Permission;
 import org.traccar.model.User;
 import org.traccar.storage.StorageException;
-import org.traccar.storage.query.Columns;
-import org.traccar.storage.query.Condition;
-import org.traccar.storage.query.Request;
 
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -39,72 +33,19 @@ import jakarta.ws.rs.core.MediaType;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.Date;
-import java.util.Locale;
 
 @Path("share")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class ShareResource extends BaseResource {
 
-    @Inject
-    private Config config;
 
     @Inject
-    private TokenManager tokenManager;
+    private EnlacesDirectos enlacesDirectos;
 
     private String share(User user, Class<? extends BaseModel> clazz, long id, Date expiration)
             throws StorageException, GeneralSecurityException, IOException {
-
-        if (permissionsService.getServer().getBoolean(Keys.DEVICE_SHARE_DISABLE.getKey())) {
-            throw new SecurityException("Sharing is disabled");
-        }
-        if (user.getTemporary()) {
-            throw new SecurityException("Temporary user");
-        }
-        if (user.getExpirationTime() != null && user.getExpirationTime().before(expiration)) {
-            expiration = user.getExpirationTime();
-        }
-
-        BaseModel object = storage.getObject(clazz, new Request(
-                new Columns.All(),
-                new Condition.And(
-                        new Condition.Equals("id", id),
-                        new Condition.Permission(User.class, user.getId(), clazz))));
-
-        String shareEmail;
-        if (clazz == Device.class) {
-            shareEmail = user.getEmail() + ":" + ((Device) object).getUniqueId();
-        } else {
-            shareEmail = user.getEmail() + ":" + clazz.getSimpleName().toLowerCase(Locale.ROOT) + ":" + object.getId();
-        }
-
-        User share = storage.getObject(User.class, new Request(
-                new Columns.All(), new Condition.Equals("email", shareEmail)));
-
-        if (share == null) {
-            share = new User();
-            share.setName(clazz == Device.class ? ((Device) object).getName() : ((Group) object).getName());
-            share.setEmail(shareEmail);
-            share.setExpirationTime(expiration);
-            share.setTemporary(true);
-            share.setReadonly(true);
-            share.setLimitCommands(user.getLimitCommands() || !config.getBoolean(Keys.WEB_SHARE_DEVICE_COMMANDS));
-            share.setDisableReports(user.getDisableReports() || !config.getBoolean(Keys.WEB_SHARE_DEVICE_REPORTS));
-
-            share.setId(storage.addObject(share, new Request(new Columns.Exclude("id"))));
-
-            storage.addPermission(new Permission(User.class, share.getId(), clazz, id));
-        } else if (EnlacesCompartidos.alargar(share.getExpirationTime(), expiration)) {
-            // The shared user is reused for every link of this device, but its
-            // expiration was only set by the first one: sharing «1 hour» and then
-            // «3 days» made the 3-day link die after an hour with the user.
-            share.setExpirationTime(expiration);
-            storage.updateObject(share, new Request(
-                    new Columns.Include("expirationTime"),
-                    new Condition.Equals("id", share.getId())));
-        }
-
-        return tokenManager.generateToken(share.getId(), expiration);
+        return enlacesDirectos.compartir(user, clazz, id, expiration).token();
     }
 
     @Path("device")
