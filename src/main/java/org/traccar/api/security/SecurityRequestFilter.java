@@ -17,6 +17,7 @@ package org.traccar.api.security;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.traccar.api.resource.MetricsResource;
 import org.traccar.database.StatisticsManager;
 import org.traccar.model.User;
 import org.traccar.storage.StorageException;
@@ -51,10 +52,28 @@ public class SecurityRequestFilter implements ContainerRequestFilter {
     @Inject
     private StatisticsManager statisticsManager;
 
+    /**
+     * Resources that check their own Authorization header, which is therefore not
+     * a Traccar login and must not be tried as one.
+     *
+     * The metrics endpoint takes web.metricsToken as the basic password of a user,
+     * nordes-metrics, that on purpose does not exist. Trying it as a login was
+     * harmless until failed logins started to lock accounts: every scrape, twice a
+     * minute, counted as a failed login, locked the name and logged a stack trace.
+     * Found on 2026-09-29 in production, where the scrapes are now local.
+     */
+    static boolean sinInicioDeSesion(Class<?> recurso) {
+        return recurso == MetricsResource.class;
+    }
+
     @Override
     public void filter(ContainerRequestContext requestContext) {
 
         if (requestContext.getMethod().equals("OPTIONS")) {
+            return;
+        }
+
+        if (sinInicioDeSesion(resourceInfo.getResourceClass())) {
             return;
         }
 
