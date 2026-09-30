@@ -181,10 +181,11 @@ public class ViajesFamiliaTest {
         return new ViajesFamilia(true, storage, cliente, enlaces, destinatarios, sitios, firma, Runnable::run);
     }
 
-    /** At home with the engine on, then out riding. */
+    /** At home with the engine on, then out riding: two samples 20 s apart. */
     private static void salir(ViajesFamilia viajes) {
-        viajes.alPosicion(pos(T - 10_000, 43.0, true, 10), null);
-        viajes.alPosicion(pos(T, 43.01, true, 30), null);
+        viajes.alPosicion(pos(T - 30_000, 43.0, true, 10));
+        viajes.alPosicion(pos(T - 20_000, 43.005, true, 30));
+        viajes.alPosicion(pos(T, 43.01, true, 30));
     }
 
     @BeforeEach
@@ -331,25 +332,32 @@ public class ViajesFamiliaTest {
         Position sinFix = pos(T, 43.01, true, 30);
         sinFix.setValid(false);
         ViajesFamilia viajes = viajes();
-        viajes.alPosicion(pos(T - 10_000, 43.0, true, 10), null);
-        viajes.alPosicion(sinFix, null);
+        viajes.alPosicion(pos(T - 30_000, 43.0, true, 10));
+        viajes.alPosicion(pos(T - 20_000, 43.005, true, 30));
+        // The second riding sample, but without a fix: it confirms nothing.
+        viajes.alPosicion(sinFix);
         verify(storage, never()).addObject(any(Viaje.class), any());
     }
 
     @Test
     public void withoutPlacesAnymoreTheBikeNoLongerLeavesFromThem() throws Exception {
         ViajesFamilia viajes = viajes();
-        viajes.alPosicion(pos(T - 10_000, 43.0, true, 10), null);
+        viajes.alPosicion(pos(T - 30_000, 43.0, true, 10));
+        viajes.alPosicion(pos(T - 20_000, 43.005, true, 30));
         // The rider deleted «Casa», or the bike changed hands to someone without places.
         when(sitios.de(8)).thenReturn(List.of());
-        viajes.alPosicion(pos(T, 43.01, true, 30), null);
+        viajes.alPosicion(pos(T, 43.01, true, 30));
+        // And the arming went with them: «Casa» back later does not make that ride a departure.
+        when(sitios.de(8)).thenReturn(List.of(new Sitio(1, "Casa", new GeofenceCircle("CIRCLE (43 -8, 100)"))));
+        viajes.alPosicion(pos(T + 20_000, 43.015, true, 30));
+        viajes.alPosicion(pos(T + 40_000, 43.02, true, 30));
         verify(storage, never()).addObject(any(Viaje.class), any());
     }
 
     @Test
     public void aStorageFailureNeverReachesTheNettyThread() throws Exception {
         when(sitios.de(8)).thenThrow(new StorageException("caída"));
-        assertDoesNotThrow(() -> viajes().alPosicion(pos(T, 43.01, true, 30), null));
+        assertDoesNotThrow(() -> viajes().alPosicion(pos(T, 43.01, true, 30)));
     }
 
     @Test
@@ -516,18 +524,19 @@ public class ViajesFamiliaTest {
     @Test
     public void theGpsDriftingOutOfTheGarageDoesNotLeave() throws Exception {
         ViajesFamilia viajes = viajes();
-        viajes.alPosicion(pos(T - 10_000, 43.0, true, 0), null);
-        viajes.alPosicion(pos(T, 43.0015, true, 0), null);
+        viajes.alPosicion(pos(T - 10_000, 43.0, true, 0));
+        viajes.alPosicion(pos(T, 43.0015, true, 0));
         verify(storage, never()).addObject(any(Viaje.class), any());
     }
 
     @Test
     public void aSlowWayOutStaysArmedUntilRiding() throws Exception {
         ViajesFamilia viajes = viajes();
-        viajes.alPosicion(pos(T - 20_000, 43.0, true, 5), null);
-        viajes.alPosicion(pos(T - 10_000, 43.0015, true, 5), null);
+        viajes.alPosicion(pos(T - 20_000, 43.0, true, 5));
+        viajes.alPosicion(pos(T - 10_000, 43.0015, true, 5));
         verify(storage, never()).addObject(any(Viaje.class), any());
-        viajes.alPosicion(pos(T, 43.004, true, 35), null);
+        viajes.alPosicion(pos(T, 43.004, true, 35));
+        viajes.alPosicion(pos(T + 15_000, 43.006, true, 35));
         verify(cliente).enviar(eq("901"), contains("ha salido de Casa"), anyList());
     }
 
@@ -536,12 +545,13 @@ public class ViajesFamiliaTest {
         // Found in review: the "before" position was the raw previous one, and a
         // heartbeat at 0,0 between home and the road lost the departure.
         ViajesFamilia viajes = viajes();
-        viajes.alPosicion(pos(T - 20_000, 43.0, true, 0), null);
+        viajes.alPosicion(pos(T - 20_000, 43.0, true, 0));
         Position latido = pos(T - 10_000, 0, false, 0);
         latido.setLongitude(0);
         latido.setValid(false);
-        viajes.alPosicion(latido, null);
-        viajes.alPosicion(pos(T, 43.01, true, 40), null);
+        viajes.alPosicion(latido);
+        viajes.alPosicion(pos(T, 43.01, true, 40));
+        viajes.alPosicion(pos(T + 20_000, 43.015, true, 40));
         verify(storage).addObject(any(Viaje.class), any());
     }
 
@@ -573,6 +583,135 @@ public class ViajesFamiliaTest {
         recientes.add(pos(T - 180_000, 43.05, false, 0));
         viajes().revisar(T);
         verify(cliente, never()).enviar(anyString(), anyString(), anyList());
+    }
+
+    @Test
+    public void oneFastSampleOfAManoeuvreIsNotADeparture() throws Exception {
+        // The real Ducati on 13/9: 16, 19 and 23 km/h at the edge of its parking
+        // within 11 s, and parked again, off. Found in the second review.
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 60_000, 43.0, true, 0));
+        viajes.alPosicion(pos(T, 43.0012, true, 16));
+        viajes.alPosicion(pos(T + 9_000, 43.0011, true, 19));
+        viajes.alPosicion(pos(T + 11_000, 43.0010, true, 23));
+        viajes.alPosicion(pos(T + 15_000, 43.0, false, 0));
+        viajes.alPosicion(pos(T + 34_000, 43.0, false, 0));
+        verify(storage, never()).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void ridingOutFiresOnceFifteenSecondsAfterTheFirstSample() throws Exception {
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 60_000, 43.0, true, 0));
+        viajes.alPosicion(pos(T, 43.002, true, 30));
+        viajes.alPosicion(pos(T + 14_000, 43.004, true, 30));
+        verify(storage, never()).addObject(any(Viaje.class), any());
+        viajes.alPosicion(pos(T + 15_000, 43.005, true, 30));
+        viajes.alPosicion(pos(T + 30_000, 43.01, true, 30));
+        viajes.alPosicion(pos(T + 45_000, 43.02, true, 30));
+        verify(storage).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void aSlowerSampleInBetweenStartsTheCountAgain() throws Exception {
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 60_000, 43.0, true, 0));
+        viajes.alPosicion(pos(T, 43.002, true, 30));
+        viajes.alPosicion(pos(T + 10_000, 43.0025, true, 10));
+        viajes.alPosicion(pos(T + 20_000, 43.003, true, 30));
+        verify(storage, never()).addObject(any(Viaje.class), any());
+        viajes.alPosicion(pos(T + 35_000, 43.005, true, 30));
+        verify(storage).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void goingBackInBetweenIsNotRidingOut() throws Exception {
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 60_000, 43.0, true, 0));
+        viajes.alPosicion(pos(T, 43.002, true, 30));
+        viajes.alPosicion(pos(T + 10_000, 43.0, true, 20));
+        viajes.alPosicion(pos(T + 20_000, 43.002, true, 30));
+        verify(storage, never()).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void aBikeTakenAwayWithTheIgnitionOffIsDisarmed() throws Exception {
+        // Found in the second review: armed at home, carried to the workshop in a
+        // van, and days later "has left home" when ridden out of the workshop.
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 3_600_000, 43.0, false, 0));
+        viajes.alPosicion(pos(T - 3_000_000, 43.03, false, 40));
+        viajes.alPosicion(pos(T, 43.03, true, 30));
+        viajes.alPosicion(pos(T + 20_000, 43.035, true, 30));
+        verify(storage, never()).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void theFixDriftingWithTheIgnitionOffKeepsItArmed() throws Exception {
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 3_600_000, 43.0, false, 0));
+        // 167 m out, off: the drift of a garage, not a van.
+        viajes.alPosicion(pos(T - 3_000_000, 43.0015, false, 1));
+        salir(viajes);
+        verify(storage).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void armedFromAPlaceThatIsNoLongerTheRidersIsNotArmed() throws Exception {
+        // Another person now rides it: «Casa» was the old rider's, and leaving it
+        // is not the new rider leaving.
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T - 60_000, 43.0, false, 0));
+        when(sitios.de(8)).thenReturn(List.of(new Sitio(2, "Trabajo", new GeofenceCircle("CIRCLE (44 -8, 100)"))));
+        viajes.alPosicion(pos(T, 43.002, true, 30));
+        viajes.alPosicion(pos(T + 20_000, 43.005, true, 30));
+        verify(storage, never()).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void afterARestartTheArmingIsRebuiltFromTheDatabase() throws Exception {
+        // Found in the second review: parked at home, restarted overnight, and the
+        // morning's departure was lost - the first fix came already outside.
+        recientes.add(pos(T - 8 * 3_600_000L, 43.0, false, 0));
+        Position latido = pos(T - 3_600_000, 0, false, 0);
+        latido.setLongitude(0);
+        latido.setValid(false);
+        recientes.add(latido);
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T, 43.002, true, 30));
+        viajes.alPosicion(pos(T + 20_000, 43.005, true, 30));
+        verify(storage).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void afterARestartOutsideEverywhereIsNotArmed() throws Exception {
+        recientes.add(pos(T - 8 * 3_600_000L, 43.03, false, 0));
+        ViajesFamilia viajes = viajes();
+        viajes.alPosicion(pos(T, 43.032, true, 30));
+        viajes.alPosicion(pos(T + 20_000, 43.035, true, 30));
+        verify(storage, never()).addObject(any(Viaje.class), any());
+    }
+
+    @Test
+    public void theArmingIsLookedForOnlyOncePerBike() throws Exception {
+        ViajesFamilia viajes = viajes();
+        for (int i = 0; i < 5; i++) {
+            viajes.alPosicion(pos(T + i * 20_000L, 43.03, true, 30));
+        }
+        verify(storage, org.mockito.Mockito.times(1)).getObjectsStream(eq(Position.class), any());
+    }
+
+    @Test
+    public void aDatabaseFailureRebuildingIsTriedAgainAndNeverThrows() throws Exception {
+        recientes.add(pos(T - 8 * 3_600_000L, 43.0, false, 0));
+        when(storage.getObjectsStream(eq(Position.class), any()))
+                .thenThrow(new StorageException("caída"))
+                .thenAnswer(i -> recientes.stream());
+        ViajesFamilia viajes = viajes();
+        assertDoesNotThrow(() -> viajes.alPosicion(pos(T, 43.002, true, 30)));
+        viajes.alPosicion(pos(T + 20_000, 43.005, true, 30));
+        viajes.alPosicion(pos(T + 40_000, 43.008, true, 30));
+        verify(storage).addObject(any(Viaje.class), any());
     }
 
 }

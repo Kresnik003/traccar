@@ -36,7 +36,7 @@ public class ViajesHandler extends BasePositionEventHandler {
 
     @Override
     protected void onPosition(Position position, Position lastPosition, Callback callback) {
-        viajesFamilia.alPosicion(position, lastPosition);
+        viajesFamilia.alPosicion(position);
     }
 
 }

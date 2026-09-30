@@ -183,19 +183,53 @@ public class PropiedadesSeguridadTest {
         Random r = new Random(SEMILLA + 2);
         Sitio casa = new Sitio(1, "Casa", new GeofenceCircle("CIRCLE (40 -3, 100)"));
         Montaje montaje = viajes(casa);
+        int picos = 0;
         for (int caso = 0; caso < 500; caso++) {
-            // Armed at home, then the fix wanders up to ~500 m at walking pace or
-            // less, with the ignition on or off, and heartbeats at 0,0 in between.
-            montaje.viajes().alPosicion(posicion(T, true, 0, 40, -3, true), null);
+            // Armed at home, then the fix wanders up to ~170 m out, with the
+            // ignition on or off, heartbeats at 0,0 in between, and now and then
+            // one sample well above riding speed - a GPS spike, a manoeuvre -
+            // always followed by a slower one. Before the second review the speeds
+            // stopped at 14.9 km/h, just under the threshold, and proved nothing.
+            montaje.viajes().alPosicion(posicion(T, true, 0, 40, -3, true));
+            boolean anteriorRapida = false;
             for (int i = 0; i < 60; i++) {
                 boolean latido = r.nextInt(8) == 0;
-                double lat = latido ? 0 : 40 + (r.nextDouble() - 0.5) * 0.009;
-                double lon = latido ? 0 : -3 + (r.nextDouble() - 0.5) * 0.012;
-                montaje.viajes().alPosicion(posicion(T + i * 5_000L, r.nextBoolean(),
-                        latido ? 50 : r.nextDouble() * 14.9, lat, lon, !latido), null);
+                boolean rapida = !latido && !anteriorRapida && r.nextInt(5) == 0;
+                double lat = latido ? 0 : 40 + (r.nextDouble() - 0.5) * 0.003;
+                double lon = latido ? 0 : -3 + (r.nextDouble() - 0.5) * 0.004;
+                double kmh = latido ? 50 : rapida ? 15 + r.nextDouble() * 60 : r.nextDouble() * 14.9;
+                montaje.viajes().alPosicion(posicion(T + i * 5_000L, r.nextBoolean(), kmh, lat, lon, !latido));
+                picos += rapida ? 1 : 0;
+                // A heartbeat without a fix says nothing: the spike still waits for its slower sample.
+                anteriorRapida = rapida || latido && anteriorRapida;
             }
         }
+        assertTrue(picos > 1_000, "the spikes were generated: " + picos);
         assertEquals(0, montaje.salidas().get());
+    }
+
+    @Test
+    public void aBikeTakenAwayOffNeverLeavesFromWhereItWas() throws Exception {
+        Random r = new Random(SEMILLA + 5);
+        Sitio casa = new Sitio(1, "Casa", new GeofenceCircle("CIRCLE (40 -3, 100)"));
+        for (int caso = 0; caso < 300; caso++) {
+            Montaje montaje = viajes(casa);
+            montaje.viajes().alPosicion(posicion(T, false, 0, 40, -3, true));
+            // On a tow truck or in a van: off, anywhere from 0.4 to 20 km away, any speed.
+            long t = T;
+            for (int i = 0; i < 1 + r.nextInt(10); i++) {
+                t += 1_000 + r.nextInt(600_000);
+                double lejos = 0.004 + r.nextDouble() * 0.18;
+                montaje.viajes().alPosicion(posicion(t, false, r.nextDouble() * 90, 40 + lejos, -3, true));
+            }
+            // Days later, ridden out of the workshop.
+            t += 86_400_000L * (1 + r.nextInt(5));
+            for (int i = 0; i < 10; i++) {
+                montaje.viajes().alPosicion(posicion(t + i * 5_000L, true, 20 + r.nextDouble() * 60,
+                        40.2 + i * 0.001, -3, true));
+            }
+            assertEquals(0, montaje.salidas().get(), "case " + caso);
+        }
     }
 
     @Test
@@ -204,14 +238,14 @@ public class PropiedadesSeguridadTest {
         Sitio casa = new Sitio(1, "Casa", new GeofenceCircle("CIRCLE (40 -3, 100)"));
         for (int caso = 0; caso < 300; caso++) {
             Montaje montaje = viajes(casa);
-            montaje.viajes().alPosicion(posicion(T, true, 0, 40, -3, true), null);
+            montaje.viajes().alPosicion(posicion(T, true, 0, 40, -3, true));
             // A slow way out first, sometimes.
             for (int i = r.nextInt(4); i > 0; i--) {
-                montaje.viajes().alPosicion(posicion(T + i * 1_000L, true, r.nextDouble() * 14, 40.0012, -3, true), null);
+                montaje.viajes().alPosicion(posicion(T + i * 1_000L, true, r.nextDouble() * 14, 40.0012, -3, true));
             }
             for (int i = 0; i < 10; i++) {
                 montaje.viajes().alPosicion(posicion(T + 10_000 + i * 4_000L, true, 15 + r.nextDouble() * 100,
-                        40.002 + i * 0.001, -3, true), null);
+                        40.002 + i * 0.001, -3, true));
             }
             assertEquals(1, montaje.salidas().get(), "case " + caso);
         }

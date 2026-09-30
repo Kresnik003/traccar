@@ -40,27 +40,48 @@ public class ReglasViajeTest {
     }
 
     @Test
-    public void leavingHomeRidingIsADeparture() {
-        assertTrue(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), true, kmh(30)));
+    public void ridingOutsideWithTheIgnitionOnMayBeADeparture() {
+        assertTrue(ReglasViaje.rodandoFuera(Optional.empty(), true, kmh(30)));
     }
 
     @Test
     public void warmingUpAtHomeIsNotADeparture() {
-        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.of(casa), true, kmh(0)));
+        assertFalse(ReglasViaje.rodandoFuera(Optional.of(casa), true, kmh(0)));
     }
 
     @Test
     public void theGpsDriftingOutOfTheGarageIsNotADeparture() {
         // Found in review (29/9): without static navigation the fix wanders while
         // the engine warms up, and one position outside a small place was "left".
-        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), true, kmh(3)));
+        assertFalse(ReglasViaje.rodandoFuera(Optional.empty(), true, kmh(3)));
     }
 
     @Test
-    public void leavingWithoutIgnitionOrFromNowhereIsNotADeparture() {
+    public void leavingWithoutIgnitionIsNotADeparture() {
         // Pushed, or on a tow truck: that is what the theft alarms are for.
-        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), false, kmh(30)));
-        assertFalse(ReglasViaje.esSalida(Optional.empty(), Optional.empty(), true, kmh(30)));
+        assertFalse(ReglasViaje.rodandoFuera(Optional.empty(), false, kmh(30)));
+    }
+
+    @Test
+    public void theSecondRidingSampleConfirmsFromFifteenSecondsToFiveMinutes() {
+        // The real Ducati on 13/9: 16 km/h at 20:13:15, 19 km/h at 20:13:24 and
+        // 23 km/h at 20:13:26, then parked again, off. Nine and eleven seconds.
+        assertFalse(ReglasViaje.confirmaSalida(T, T + 9_000));
+        assertFalse(ReglasViaje.confirmaSalida(T, T + 14_999));
+        assertTrue(ReglasViaje.confirmaSalida(T, T + 15_000));
+        assertTrue(ReglasViaje.confirmaSalida(T, T + 5 * 60_000));
+        assertFalse(ReglasViaje.confirmaSalida(T, T + 5 * 60_000 + 1));
+        assertFalse(ReglasViaje.confirmaSalida(T, T - 20_000));
+    }
+
+    @Test
+    public void farAwayWithTheIgnitionOffIsBeingTakenAway() {
+        assertTrue(ReglasViaje.seLaLlevan(false, 301));
+        // The drift of the real parking reaches ~80 m.
+        assertFalse(ReglasViaje.seLaLlevan(false, 300));
+        assertFalse(ReglasViaje.seLaLlevan(false, 80));
+        // Ridden away slowly, with the ignition on: still armed.
+        assertFalse(ReglasViaje.seLaLlevan(true, 5_000));
     }
 
     @Test
@@ -98,26 +119,14 @@ public class ReglasViajeTest {
 
     @Test
     public void fifteenKmhIsRidingAndJustBelowIsNot() {
-        assertTrue(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), true, kmh(15)));
-        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.empty(), true, kmh(14.9)));
+        assertTrue(ReglasViaje.rodandoFuera(Optional.empty(), true, kmh(15)));
+        assertFalse(ReglasViaje.rodandoFuera(Optional.empty(), true, kmh(14.9)));
     }
 
     @Test
     public void ridingAcrossTheSamePlaceIsNotLeavingIt() {
         // A big place (an industrial estate, a campus): riding inside it at 30 km/h is not having left.
-        assertFalse(ReglasViaje.esSalida(Optional.of(casa), Optional.of(casa), true, kmh(30)));
-    }
-
-    @Test
-    public void threeKmhWithTheIgnitionOffStillCountsAsStill() {
-        // The GPS reads a few km/h on a parked bike: up to 3 km/h it is still.
-        assertEquals(T - 60_000, ReglasViaje.quietaDesde(List.of(pos(0, false, 3), pos(60_000, false, 3))));
-    }
-
-    @Test
-    public void aBikePushedWithTheIgnitionOffIsNotStill() {
-        // Newest first: still now, but a minute ago it moved at 10 km/h with the ignition off.
-        assertEquals(T, ReglasViaje.quietaDesde(List.of(pos(0, false, 0), pos(60_000, false, 10))));
+        assertFalse(ReglasViaje.rodandoFuera(Optional.of(casa), true, kmh(30)));
     }
 
 }
