@@ -108,8 +108,8 @@ public final class Mensajes {
     }
 
     public static String bienvenidaDeMoto(String moto) {
-        return "Hola. Ahora eres contacto de emergencia de la moto " + moto + " en Nordés. "
-                + "Te escribiremos aquí si detectamos un golpe y quien la lleva no responde, "
+        return "Hola. Ahora eres contacto de emergencia de «" + moto + "» en Nordés. "
+                + "Te escribiremos aquí si detectamos un golpe y nadie responde, "
                 + "y cuando salga de viaje y llegue. "
                 + "Nordés no avisa al 112. Para dejar de recibir avisos, escribe /baja.";
     }

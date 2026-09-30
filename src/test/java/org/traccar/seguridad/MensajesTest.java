@@ -118,4 +118,14 @@ public class MensajesTest {
         assertEquals("Hecho. Ya no recibirás avisos de Nordés. Si quieres volver, pide un enlace nuevo.", Mensajes.baja());
     }
 
+    @Test
+    public void theWelcomeWithoutARiderFitsACarAsWellAsABike() {
+        // 30/9/2026: Nordés también lleva coches (el FMT100 de Adrián), y la
+        // bienvenida decía «contacto de emergencia de la moto FMT100_ADRI».
+        String texto = Mensajes.bienvenidaDeMoto("FMT100_ADRI");
+        assertTrue(texto.contains("«FMT100_ADRI»"), texto);
+        assertFalse(texto.toLowerCase().contains("moto"), texto);
+        assertFalse(texto.contains("la lleva"), texto);
+    }
+
 }

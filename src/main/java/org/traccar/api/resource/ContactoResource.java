@@ -116,7 +116,7 @@ public class ContactoResource extends BaseResource {
             throw new IllegalArgumentException("El nombre del contacto va de 1 a " + NOMBRE_MAXIMO + " caracteres");
         }
         if (delEquipo(alta.deviceId()).size() >= MAXIMO) {
-            throw new IllegalArgumentException("Esta moto ya tiene " + MAXIMO + " contactos");
+            throw new IllegalArgumentException("Este vehículo ya tiene " + MAXIMO + " contactos");
         }
         String bot = clienteTelegram.nombreDelBot();
         if (bot == null) {

@@ -273,7 +273,7 @@ public class BuzonTelegram implements LifecycleObject {
                 new Condition.Equals("id", contacto.getId())));
         Device device = storage.getObject(Device.class, new Request(
                 new Columns.All(), new Condition.Equals("id", contacto.getDeviceId())));
-        String moto = device != null ? device.getName() : "moto";
+        String moto = device != null ? device.getName() : "vehículo";
         String persona = destinatarios.motorista(contacto.getDeviceId())
                 .map(User::getName)
                 .filter(name -> name != null && !name.isBlank())
