@@ -19,6 +19,7 @@ import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
+import org.traccar.model.Motorista;
 import org.traccar.model.Quedada;
 import org.traccar.model.QuedadaEquipo;
 import org.traccar.model.QuedadaUsuario;
@@ -46,10 +47,15 @@ import java.util.Optional;
  * THE RIDER IS ONE PERSON, NOT "WHOEVER SEES THE BIKE". Found in review on
  * 2026-09-29: with two people on a bike (a couple, a bike an administrator set
  * up), the other one got "a crash in your bike" and, by pressing "I'm fine",
- * cancelled the warning to the rider's contacts. The rider is the device
- * attribute {@code motorista} (a user id, set from the web: "I ride it"), or,
- * when nobody chose, the only real user linked to the bike directly. With
- * several and no choice there is no rider, and nothing is armed for the bike.
+ * cancelled the warning to the rider's contacts.
+ *
+ * The rider is who said "I ride it" (table nx_motoristas), while that person is
+ * still a real user who sees the bike. Otherwise, the only real user who sees
+ * it, directly or through a group. With several and no valid choice there is no
+ * rider and nothing is armed: never a guess between people. Found in review on
+ * 2026-09-30: counting only direct links made the one person linked directly
+ * the rider of a bike its owner sees through a group, and a choice that no
+ * longer counted (unlinked, disabled) left the bike with no rider at all.
  */
 @Singleton
 public class Destinatarios {
@@ -57,8 +63,6 @@ public class Destinatarios {
     /** A chat to warn; {@code quedada} is the ride's name for a ride mate, null for a contact. */
     public record Destinatario(String chatId, String quedada, Long contactoId) {
     }
-
-    public static final String MOTORISTA = "motorista";
 
     private static final String EN_MARCHA = "en_marcha";
 
@@ -73,22 +77,44 @@ public class Destinatarios {
         return !user.getTemporary() && !user.getDisabled();
     }
 
-    public Optional<User> motorista(long deviceId) throws StorageException {
-        Device device = storage.getObject(Device.class, new Request(
-                new Columns.All(), new Condition.Equals("id", deviceId)));
-        if (device != null && device.hasAttribute(MOTORISTA)) {
-            long elegido = device.getLong(MOTORISTA);
-            // Only while the chosen one can still see the bike.
-            return storage.getObjects(User.class, new Request(
-                    new Columns.All(), new Condition.Permission(User.class, Device.class, deviceId))).stream()
-                    .filter(Destinatarios::real)
-                    .filter(user -> user.getId() == elegido)
-                    .findFirst();
+    /** Real users who see the bike, directly or through a group (nested too), each once. */
+    private List<User> quienesLaVen(long deviceId) throws StorageException {
+        Map<Long, User> porId = new LinkedHashMap<>();
+        for (User user : storage.getObjects(User.class, new Request(
+                new Columns.All(), new Condition.Permission(User.class, Device.class, deviceId)))) {
+            if (real(user)) {
+                porId.putIfAbsent(user.getId(), user);
+            }
         }
-        List<User> directos = storage.getObjects(User.class, new Request(
-                new Columns.All(), new Condition.Permission(User.class, Device.class, deviceId).excludeGroups()))
-                .stream().filter(Destinatarios::real).toList();
-        return directos.size() == 1 ? Optional.of(directos.get(0)) : Optional.empty();
+        return new ArrayList<>(porId.values());
+    }
+
+    public Optional<User> motorista(long deviceId) throws StorageException {
+        List<User> laVen = quienesLaVen(deviceId);
+        Motorista elegido = storage.getObject(Motorista.class, new Request(
+                new Columns.All(), new Condition.Equals("deviceid", deviceId)));
+        if (elegido != null) {
+            Optional<User> vale = laVen.stream().filter(user -> user.getId() == elegido.getUserId()).findFirst();
+            if (vale.isPresent()) {
+                return vale;
+            }
+        }
+        return laVen.size() == 1 ? Optional.of(laVen.get(0)) : Optional.empty();
+    }
+
+    /** Whether this user may be the bike's rider: a real user who sees it. */
+    public boolean puedeLlevarla(long deviceId, long userId) throws StorageException {
+        return quienesLaVen(deviceId).stream().anyMatch(user -> user.getId() == userId);
+    }
+
+    /** "I ride it": one row per bike, replaced. */
+    public void elegir(long deviceId, long userId) throws StorageException {
+        Motorista motorista = new Motorista();
+        motorista.setDeviceId(deviceId);
+        motorista.setUserId(userId);
+        motorista.setDesde(new Date());
+        storage.removeObject(Motorista.class, new Request(new Condition.Equals("deviceid", deviceId)));
+        storage.addObject(motorista, new Request(new Columns.Exclude("id")));
     }
 
     public Optional<String> chatDelMotorista(long deviceId) throws StorageException {

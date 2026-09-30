@@ -11,11 +11,10 @@ import org.traccar.api.security.PermissionsService;
 import org.traccar.api.security.UserPrincipal;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
-import org.traccar.model.ObjectOperation;
 import org.traccar.model.User;
+import org.traccar.helper.LogAction;
 import org.traccar.seguridad.Destinatarios;
 import org.traccar.seguridad.SitiosPropios;
-import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
 import org.traccar.telegram.ClienteTelegram;
 import org.traccar.telegram.CodigosAlta;
@@ -52,7 +51,7 @@ public class ContactoResourceTest {
     private ClienteTelegram clienteTelegram;
     private Destinatarios destinatarios;
     private SitiosPropios sitiosPropios;
-    private CacheManager cacheManager;
+    private LogAction actionLogger;
 
     private static void poner(Class<?> clase, Object objeto, String campo, Object valor) throws Exception {
         Field field = clase.getDeclaredField(campo);
@@ -79,10 +78,11 @@ public class ContactoResourceTest {
         when(permissionsService.getUser(2)).thenReturn(juan);
         destinatarios = mock(Destinatarios.class);
         sitiosPropios = mock(SitiosPropios.class);
-        cacheManager = mock(CacheManager.class);
+        actionLogger = mock(LogAction.class);
         poner(ContactoResource.class, resource, "destinatarios", destinatarios);
         poner(ContactoResource.class, resource, "sitiosPropios", sitiosPropios);
-        poner(ContactoResource.class, resource, "cacheManager", cacheManager);
+        poner(ContactoResource.class, resource, "actionLogger", actionLogger);
+        when(destinatarios.puedeLlevarla(anyLong(), anyLong())).thenReturn(true);
         when(storage.getObjects(eq(Contacto.class), any())).thenReturn(new ArrayList<>());
     }
 
@@ -175,15 +175,64 @@ public class ContactoResourceTest {
 
     @Test
     public void iRideItMakesMeTheRider() throws Exception {
-        Device device = new Device();
-        device.setId(8);
-        when(storage.getObject(eq(Device.class), any())).thenReturn(device);
         resource.serMotorista(8);
-        ArgumentCaptor<Device> captor = ArgumentCaptor.forClass(Device.class);
-        verify(storage).updateObject(captor.capture(), any());
-        assertEquals(2, captor.getValue().getLong(Destinatarios.MOTORISTA));
-        verify(cacheManager).invalidateObject(true, Device.class, 8, ObjectOperation.UPDATE);
+        verify(destinatarios).elegir(8, 2);
         verify(sitiosPropios).olvidar(8);
+        // It leaves a trace in the audit, like any other change.
+        ArgumentCaptor<Device> editado = ArgumentCaptor.forClass(Device.class);
+        verify(actionLogger).edit(any(), eq(2L), editado.capture());
+        assertEquals(8, editado.getValue().getId());
+        // And it no longer touches the device: the web's stale copies wiped it (30/9).
+        verify(storage, never()).updateObject(any(), any());
+    }
+
+    @Test
+    public void aMemberWithReadOnlyDevicesCanStillSayIRideIt() throws Exception {
+        // Found in review (30/9): the member whose bike an administrator set up
+        // read-only could never say so, and the question went to the administrator.
+        doThrow(new SecurityException("Write access denied")).when(permissionsService)
+                .checkEdit(anyLong(), eq(Device.class), eq(false), eq(false));
+        resource.serMotorista(8);
+        verify(destinatarios).elegir(8, 2);
+    }
+
+    @Test
+    public void whoDoesNotSeeTheBikeOrHoldsAFollowMeLinkCannotRideIt() throws Exception {
+        doThrow(new SecurityException("no")).when(permissionsService)
+                .checkPermission(eq(Device.class), anyLong(), eq(9L));
+        assertThrows(SecurityException.class, () -> resource.serMotorista(9));
+
+        // An administrator sees every bike but is not linked to this one.
+        when(destinatarios.puedeLlevarla(8, 2)).thenReturn(false);
+        WebApplicationException ajeno = assertThrows(WebApplicationException.class, () -> resource.serMotorista(8));
+        assertEquals(403, ajeno.getResponse().getStatus());
+
+        User temporal = new User();
+        temporal.setId(2);
+        temporal.setTemporary(true);
+        when(permissionsService.getUser(2)).thenReturn(temporal);
+        WebApplicationException enlace = assertThrows(WebApplicationException.class, () -> resource.serMotorista(8));
+        assertEquals(403, enlace.getResponse().getStatus());
+        verify(destinatarios, never()).elegir(anyLong(), anyLong());
+    }
+
+    @Test
+    public void theWebIsToldWhetherTheRiderHasTelegram() throws Exception {
+        User esther = new User();
+        esther.setId(6);
+        esther.setName("Esther");
+        when(destinatarios.motorista(8)).thenReturn(Optional.of(esther));
+        assertEquals(false, resource.motorista(8).get("tieneTelegram"));
+        esther.set("telegramChatId", "  ");
+        assertEquals(false, resource.motorista(8).get("tieneTelegram"));
+        esther.set("telegramChatId", "906");
+        Map<String, Object> visto = resource.motorista(8);
+        assertEquals(true, visto.get("tieneTelegram"));
+        assertEquals(false, visto.get("soyYo"));
+        assertFalse(visto.containsValue("906"));
+        when(destinatarios.motorista(8)).thenReturn(Optional.empty());
+        assertEquals(false, resource.motorista(8).get("tieneTelegram"));
+        assertEquals(null, resource.motorista(8).get("nombre"));
     }
 
     @Test
@@ -296,26 +345,17 @@ public class ContactoResourceTest {
     }
 
     @Test
-    public void aDeviceReadonlyUserCannotMakeThemselvesTheRider() throws Exception {
-        doThrow(new SecurityException("Write access denied")).when(permissionsService)
-                .checkEdit(anyLong(), eq(Device.class), eq(false), eq(false));
-        assertThrows(SecurityException.class, () -> resource.serMotorista(8));
-        verify(storage, never()).updateObject(any(), any());
-    }
-
-    @Test
-    public void ridingABikeThatIsGoneIsNotFound() throws Exception {
-        when(storage.getObject(eq(Device.class), any())).thenReturn(null);
+    public void ridingABikeThatIsGoneIsRefused() throws Exception {
+        // Nobody sees a bike that no longer exists, so nobody may ride it.
+        when(destinatarios.puedeLlevarla(8, 2)).thenReturn(false);
         WebApplicationException error = assertThrows(WebApplicationException.class, () -> resource.serMotorista(8));
-        assertEquals(404, error.getResponse().getStatus());
-        verify(storage, never()).updateObject(any(), any());
+        assertEquals(403, error.getResponse().getStatus());
+        verify(destinatarios, never()).elegir(anyLong(), anyLong());
+        verify(actionLogger, never()).edit(any(), anyLong(), any());
     }
 
     @Test
     public void ridingItAnswersNoContent() throws Exception {
-        Device device = new Device();
-        device.setId(8);
-        when(storage.getObject(eq(Device.class), any())).thenReturn(device);
         assertEquals(204, resource.serMotorista(8).getStatus());
     }
 
