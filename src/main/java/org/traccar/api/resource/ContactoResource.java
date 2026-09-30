@@ -16,6 +16,7 @@
 package org.traccar.api.resource;
 
 import jakarta.inject.Inject;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -26,16 +27,16 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.traccar.api.BaseResource;
+import org.traccar.helper.LogAction;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
-import org.traccar.model.ObjectOperation;
 import org.traccar.model.User;
 import org.traccar.seguridad.Destinatarios;
 import org.traccar.seguridad.SitiosPropios;
-import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
@@ -74,7 +75,10 @@ public class ContactoResource extends BaseResource {
     private SitiosPropios sitiosPropios;
 
     @Inject
-    private CacheManager cacheManager;
+    private LogAction actionLogger;
+
+    @Context
+    private HttpServletRequest request;
 
     public record Alta(long deviceId, String nombre) {
     }
@@ -147,7 +151,8 @@ public class ContactoResource extends BaseResource {
 
     /**
      * Who rides the bike: the one person asked "are you fine?" after a crash. Its
-     * name, whether it is the caller, and whether someone chose it; never its chat.
+     * name, whether it is the caller and whether it has Telegram (without it
+     * nobody is asked, and the web must not promise it); never its chat.
      */
     @Path("motorista")
     @GET
@@ -158,24 +163,33 @@ public class ContactoResource extends BaseResource {
         Map<String, Object> visto = new LinkedHashMap<>();
         visto.put("nombre", motorista.map(User::getName).orElse(null));
         visto.put("soyYo", motorista.map(user -> user.getId() == getUserId()).orElse(false));
+        visto.put("tieneTelegram", motorista.map(user -> {
+            String chat = user.getString("telegramChatId");
+            return chat != null && !chat.isBlank();
+        }).orElse(false));
         return visto;
     }
 
-    /** "I ride it": the caller becomes the bike's rider. */
+    /**
+     * "I ride it": the caller becomes the bike's rider. Seeing the bike is enough,
+     * also with read-only devices: found in review on 2026-09-30, the member whose
+     * bike an administrator set up read-only could never say so, and the question
+     * after a crash went to the administrator. Not a "follow me" link.
+     */
     @Path("motorista")
     @PUT
     public Response serMotorista(@QueryParam("deviceId") long deviceId) throws Exception {
-        puedeEditar(deviceId);
-        Device device = storage.getObject(Device.class, new Request(
-                new Columns.All(), new Condition.Equals("id", deviceId)));
-        if (device == null) {
-            throw new WebApplicationException(Response.Status.NOT_FOUND);
+        noTemporal();
+        permissionsService.checkPermission(Device.class, getUserId(), deviceId);
+        if (!destinatarios.puedeLlevarla(deviceId, getUserId())) {
+            // An administrator sees every bike, but only who is linked to it can ride it.
+            throw new WebApplicationException(Response.Status.FORBIDDEN);
         }
-        device.set(Destinatarios.MOTORISTA, getUserId());
-        storage.updateObject(device, new Request(
-                new Columns.Include("attributes"), new Condition.Equals("id", deviceId)));
-        cacheManager.invalidateObject(true, Device.class, deviceId, ObjectOperation.UPDATE);
+        destinatarios.elegir(deviceId, getUserId());
         sitiosPropios.olvidar(deviceId);
+        Device device = new Device();
+        device.setId(deviceId);
+        actionLogger.edit(request, getUserId(), device);
         return Response.noContent().build();
     }
 

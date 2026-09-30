@@ -7,6 +7,7 @@ import org.traccar.helper.UnitsConverter;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
 import org.traccar.model.Guardia;
+import org.traccar.model.Motorista;
 import org.traccar.model.Position;
 import org.traccar.model.QuedadaEquipo;
 import org.traccar.model.User;
@@ -200,8 +201,9 @@ public class PropiedadesSeguridadTest {
         String[] chats = {"900", "901", "902", "903", "904", "905"};
         for (int caso = 0; caso < 2_000; caso++) {
             Storage storage = mock(Storage.class);
-            List<User> todos = new ArrayList<>();
-            List<User> directos = new ArrayList<>();
+            // Who sees the bike, directly or through a group; someone linked both
+            // ways comes back twice.
+            List<User> laVen = new ArrayList<>();
             for (int i = 0; i < 1 + r.nextInt(4); i++) {
                 User user = new User();
                 user.setId(10 + i);
@@ -209,18 +211,23 @@ public class PropiedadesSeguridadTest {
                 user.setTemporary(r.nextInt(6) == 0);
                 user.setDisabled(r.nextInt(8) == 0);
                 user.set("telegramChatId", chats[r.nextInt(chats.length)]);
-                todos.add(user);
-                if (r.nextBoolean()) {
-                    directos.add(user);
+                laVen.add(user);
+                if (r.nextInt(4) == 0) {
+                    laVen.add(user);
                 }
             }
-            Device device = new Device();
-            device.setId(8);
             int eleccion = r.nextInt(3);
+            Long elegido = null;
             if (eleccion == 1) {
-                device.set(Destinatarios.MOTORISTA, todos.get(r.nextInt(todos.size())).getId());
+                elegido = laVen.get(r.nextInt(laVen.size())).getId();
             } else if (eleccion == 2) {
-                device.set(Destinatarios.MOTORISTA, 999L);
+                elegido = 999L;
+            }
+            if (elegido != null) {
+                Motorista fila = new Motorista();
+                fila.setDeviceId(8);
+                fila.setUserId(elegido);
+                when(storage.getObject(eq(Motorista.class), any())).thenReturn(fila);
             }
             List<Contacto> contactos = new ArrayList<>();
             for (int i = 0; i < r.nextInt(5); i++) {
@@ -230,11 +237,8 @@ public class PropiedadesSeguridadTest {
                 contacto.setConfirmado(new Date());
                 contactos.add(contacto);
             }
-            when(storage.getObject(eq(Device.class), any())).thenReturn(device);
             when(storage.getObjects(eq(User.class), argThat((Request q) -> q != null
-                    && q.getCondition() instanceof Condition.Permission p && p.getIncludeGroups()))).thenReturn(todos);
-            when(storage.getObjects(eq(User.class), argThat((Request q) -> q != null
-                    && q.getCondition() instanceof Condition.Permission p && !p.getIncludeGroups()))).thenReturn(directos);
+                    && q.getCondition() instanceof Condition.Permission p && p.getIncludeGroups()))).thenReturn(laVen);
             when(storage.getObjects(eq(Contacto.class), any())).thenReturn(contactos);
             when(storage.getObjects(eq(QuedadaEquipo.class), any())).thenReturn(List.of());
 
@@ -245,14 +249,17 @@ public class PropiedadesSeguridadTest {
 
             String etiqueta = "case " + caso;
             chat.ifPresent(c -> assertFalse(avisados.contains(c), etiqueta + ": the rider is warned"));
-            assertEquals(avisados.size(), avisados.stream().distinct().count(), "case " + caso + ": twice");
+            assertEquals(avisados.size(), avisados.stream().distinct().count(), etiqueta + ": twice");
             motorista.ifPresent(m -> assertTrue(!m.getTemporary() && !m.getDisabled(), etiqueta));
-            if (eleccion == 0) {
-                long reales = directos.stream().filter(u -> !u.getTemporary() && !u.getDisabled()).count();
-                assertEquals(reales == 1, motorista.isPresent(), "case " + caso + ": several, none chosen");
-            }
-            if (eleccion == 2) {
-                assertTrue(motorista.isEmpty(), "case " + caso + ": a chosen rider who is not there");
+            List<Long> reales = laVen.stream().filter(u -> !u.getTemporary() && !u.getDisabled())
+                    .map(User::getId).distinct().toList();
+            Long elegidoFinal = elegido;
+            if (elegido != null && reales.contains(elegido)) {
+                assertEquals(elegidoFinal, motorista.map(User::getId).orElse(null), etiqueta + ": the choice");
+            } else {
+                // No valid choice: the only real person who sees it, or nobody. Never a guess.
+                assertEquals(reales.size() == 1 ? reales.get(0) : null,
+                        motorista.map(User::getId).orElse(null), etiqueta + ": without a valid choice");
             }
         }
     }

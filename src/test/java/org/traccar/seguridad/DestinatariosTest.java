@@ -3,7 +3,7 @@ package org.traccar.seguridad;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.traccar.model.Contacto;
-import org.traccar.model.Device;
+import org.traccar.model.Motorista;
 import org.traccar.model.Quedada;
 import org.traccar.model.QuedadaEquipo;
 import org.traccar.model.QuedadaUsuario;
@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -54,28 +55,23 @@ public class DestinatariosTest {
         return contacto;
     }
 
-    private static Request directos() {
-        return argThat(r -> r != null && r.getCondition() instanceof Condition.Permission p && !p.getIncludeGroups());
-    }
-
     private static Request todos() {
         return argThat(r -> r != null && r.getCondition() instanceof Condition.Permission p && p.getIncludeGroups());
     }
 
-    /** Juan (2) and Esther (6) see the bike; Juan directly, Esther through a group. */
-    private Storage storage(Long motorista, List<User> directos) throws Exception {
+    /**
+     * Who sees the bike (directly or through a group: the storage answers only the
+     * query that includes groups) and who said "I ride it", if anybody.
+     */
+    private Storage storage(Long motorista, List<User> laVen) throws Exception {
         Storage storage = mock(Storage.class);
-        Device device = new Device();
-        device.setId(8);
         if (motorista != null) {
-            device.set("motorista", motorista);
+            Motorista elegido = new Motorista();
+            elegido.setDeviceId(8);
+            elegido.setUserId(motorista);
+            when(storage.getObject(eq(Motorista.class), any())).thenReturn(elegido);
         }
-        when(storage.getObject(eq(Device.class), any())).thenReturn(device);
-        User temporal = usuario(50, "950");
-        temporal.setTemporary(true);
-        when(storage.getObjects(eq(User.class), todos())).thenReturn(
-                List.of(usuario(2, "900"), usuario(6, "906"), temporal));
-        when(storage.getObjects(eq(User.class), directos())).thenReturn(directos);
+        when(storage.getObjects(eq(User.class), todos())).thenReturn(laVen);
         when(storage.getObjects(eq(Contacto.class), any())).thenReturn(List.of(
                 contacto(1, "901", true, false),
                 contacto(2, "902", false, false),     // pending
@@ -108,13 +104,13 @@ public class DestinatariosTest {
     }
 
     @Test
-    public void withoutAChoiceTheOnlyDirectUserIsTheRider() throws Exception {
+    public void withoutAChoiceTheOnlyUserWhoSeesItIsTheRider() throws Exception {
         Destinatarios destinatarios = new Destinatarios(storage(null, List.of(usuario(2, "900"))));
         assertEquals(Optional.of("900"), destinatarios.chatDelMotorista(8));
     }
 
     @Test
-    public void withoutAChoiceAndSeveralDirectUsersThereIsNoRider() throws Exception {
+    public void withoutAChoiceAndSeveralUsersThereIsNoRider() throws Exception {
         Destinatarios destinatarios = new Destinatarios(storage(null, List.of(usuario(2, "900"), usuario(6, "906"))));
         assertTrue(destinatarios.motorista(8).isEmpty());
         assertTrue(destinatarios.chatDelMotorista(8).isEmpty());
@@ -142,13 +138,6 @@ public class DestinatariosTest {
 
     private static List<String> chats(List<Destinatarios.Destinatario> lista) {
         return lista.stream().map(Destinatarios.Destinatario::chatId).toList();
-    }
-
-    @Test
-    public void aBikeThatIsGoneStillFindsItsOnlyDirectUser() throws Exception {
-        Storage storage = storage(null, List.of(usuario(2, "900")));
-        when(storage.getObject(eq(Device.class), any())).thenReturn(null);
-        assertEquals(Optional.of("900"), new Destinatarios(storage).chatDelMotorista(8));
     }
 
     @Test
@@ -243,6 +232,89 @@ public class DestinatariosTest {
                 contacto(1, "900", true, false), contacto(2, "901", true, false)));
         assertEquals(List.of("901"), chats(new Destinatarios(storage).contactos(8)));
         assertEquals(List.of("901", "905"), chats(new Destinatarios(storage).de(8)));
+    }
+
+    private static User apagado(long id, String chat) {
+        User user = usuario(id, chat);
+        user.setDisabled(true);
+        return user;
+    }
+
+    private static User temporal(long id, String chat) {
+        User user = usuario(id, chat);
+        user.setTemporary(true);
+        return user;
+    }
+
+    @Test
+    public void aChoiceThatNoLongerCountsFallsBackInsteadOfLeavingNoRider() throws Exception {
+        // Found in review (30/9): Esther chose "I ride it" and was then unlinked or
+        // disabled; Juan was left alone with the bike and nothing was armed.
+        assertEquals(Optional.of("900"),
+                new Destinatarios(storage(77L, List.of(usuario(2, "900")))).chatDelMotorista(8));
+        assertEquals(Optional.of("900"), new Destinatarios(
+                storage(6L, List.of(usuario(2, "900"), apagado(6, "906")))).chatDelMotorista(8));
+        assertEquals(Optional.of("900"), new Destinatarios(
+                storage(6L, List.of(usuario(2, "900"), temporal(6, "906")))).chatDelMotorista(8));
+    }
+
+    @Test
+    public void whoSeesTheBikeThroughAGroupCounts() throws Exception {
+        // Found in review (30/9): Juan sees the Ducati through a group and Esther
+        // directly; counting only direct links made Esther the rider of Juan's bike.
+        // The storage here answers only the query that includes groups.
+        assertEquals(Optional.of("900"),
+                new Destinatarios(storage(null, List.of(usuario(2, "900")))).chatDelMotorista(8));
+        assertTrue(new Destinatarios(storage(null, List.of(usuario(2, "900"), usuario(6, "906"))))
+                .motorista(8).isEmpty());
+    }
+
+    @Test
+    public void twoThroughAGroupAndOneDirectlyIsNobodyUntilSomeoneChooses() throws Exception {
+        List<User> tres = List.of(usuario(2, "900"), usuario(6, "906"), usuario(7, "907"));
+        assertTrue(new Destinatarios(storage(null, tres)).motorista(8).isEmpty());
+        assertEquals(Optional.of("906"), new Destinatarios(storage(6L, tres)).chatDelMotorista(8));
+    }
+
+    @Test
+    public void aLinkedAdministratorIsOneMorePerson() throws Exception {
+        User admin = usuario(1, "901");
+        admin.setAdministrator(true);
+        assertTrue(new Destinatarios(storage(null, List.of(admin, usuario(2, "900")))).motorista(8).isEmpty());
+        assertEquals(Optional.of("901"), new Destinatarios(storage(null, List.of(admin))).chatDelMotorista(8));
+    }
+
+    @Test
+    public void thePersonLinkedTwiceIsStillOnePerson() throws Exception {
+        // Directly and through a group: the same user comes back twice.
+        assertEquals(Optional.of("900"), new Destinatarios(
+                storage(null, List.of(usuario(2, "900"), usuario(2, "900")))).chatDelMotorista(8));
+    }
+
+    @Test
+    public void onlyARealUserWhoSeesTheBikeMayRideIt() throws Exception {
+        Destinatarios destinatarios = new Destinatarios(
+                storage(null, List.of(usuario(2, "900"), apagado(6, "906"), temporal(50, "950"))));
+        assertTrue(destinatarios.puedeLlevarla(8, 2));
+        assertFalse(destinatarios.puedeLlevarla(8, 6));
+        assertFalse(destinatarios.puedeLlevarla(8, 50));
+        assertFalse(destinatarios.puedeLlevarla(8, 77));
+    }
+
+    @Test
+    public void choosingReplacesTheBikesRow() throws Exception {
+        Storage storage = mock(Storage.class);
+        new Destinatarios(storage).elegir(8, 2);
+        ArgumentCaptor<Request> borrado = ArgumentCaptor.forClass(Request.class);
+        verify(storage).removeObject(eq(Motorista.class), borrado.capture());
+        Condition.Equals donde = (Condition.Equals) borrado.getValue().getCondition();
+        assertEquals("deviceid", donde.getColumn());
+        assertEquals(8L, donde.getValue());
+        ArgumentCaptor<Motorista> fila = ArgumentCaptor.forClass(Motorista.class);
+        verify(storage).addObject(fila.capture(), any());
+        assertEquals(8, fila.getValue().getDeviceId());
+        assertEquals(2, fila.getValue().getUserId());
+        assertNotNull(fila.getValue().getDesde());
     }
 
 }
