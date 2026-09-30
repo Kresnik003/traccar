@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -73,13 +74,20 @@ public class CasosRealesTest {
         return new double[] {lat[lat.length / 2], lon[lon.length / 2]};
     }
 
-    @Test
-    public void everyDepartureOfTheRealBikeIsARealDeparture() throws Exception {
-        List<Position> posiciones = cargar("moto-real.json");
-        double[] casa = aparcamiento(posiciones);
-        Sitio sitio = new Sitio(1, "Casa", new GeofenceCircle(
-                String.format(java.util.Locale.ROOT, "CIRCLE (%.6f %.6f, 100)", casa[0], casa[1])));
+    private static final long[] RADIOS = {30, 40, 50, 60, 70, 100};
 
+    private static long hora(String cuando) {
+        return java.time.OffsetDateTime.parse("2026-09-13T" + cuando + "Z").toInstant().toEpochMilli();
+    }
+
+    /**
+     * The real day through the trips, armed at home from the start, with a round
+     * «Casa» of the given radius where the replica sleeps. The fix times of the
+     * positions that opened a trip.
+     */
+    private static List<Long> salidas(List<Position> posiciones, double[] casa, long radio) throws Exception {
+        Sitio sitio = new Sitio(1, "Casa", new GeofenceCircle(String.format(
+                java.util.Locale.ROOT, "CIRCLE (%.6f %.6f, %d)", casa[0], casa[1], radio)));
         Storage storage = mock(Storage.class);
         ClienteTelegram cliente = mock(ClienteTelegram.class);
         Destinatarios destinatarios = mock(Destinatarios.class);
@@ -89,48 +97,83 @@ public class CasosRealesTest {
         when(destinatarios.persona(8)).thenReturn("Juan");
         when(storage.getObject(eq(Device.class), any())).thenReturn(new Device());
         when(cliente.enviar(anyString(), anyString(), anyList())).thenReturn(new RespuestaTelegram(200, null));
-        int[] actual = {0};
-        List<Integer> salidas = new ArrayList<>();
+        long[] actual = {0};
+        List<Long> salidas = new ArrayList<>();
         when(storage.addObject(any(Viaje.class), any())).thenAnswer(i -> {
             salidas.add(actual[0]);
             return (long) salidas.size();
         });
         ViajesFamilia viajes = new ViajesFamilia(true, storage, cliente, mock(EnlacesDirectos.class),
                 destinatarios, sitios, new FirmaBoton("s"), Runnable::run);
-
-        for (int i = 0; i < posiciones.size(); i++) {
-            actual[0] = i;
-            viajes.alPosicion(posiciones.get(i), null);
+        Position enCasa = new Position();
+        enCasa.setDeviceId(8);
+        enCasa.setDeviceTime(new Date(posiciones.get(0).getFixTime().getTime() - 60_000));
+        enCasa.setFixTime(enCasa.getDeviceTime());
+        enCasa.setValid(true);
+        enCasa.setLatitude(casa[0]);
+        enCasa.setLongitude(casa[1]);
+        viajes.alPosicion(enCasa);
+        for (Position position : posiciones) {
+            actual[0] = position.getFixTime().getTime();
+            viajes.alPosicion(position);
         }
+        return salidas;
+    }
 
-        // Not vacuous: the replica does leave home, and that must be seen.
-        assertFalse(salidas.isEmpty(), "the real bike left home and no departure fired");
-        for (int indice : salidas) {
-            long inicio = posiciones.get(indice).getDeviceTime().getTime();
-            boolean seAleja = posiciones.stream()
-                    .filter(Fijacion::tiene)
-                    .filter(p -> p.getDeviceTime().getTime() >= inicio
-                            && p.getDeviceTime().getTime() <= inicio + 180_000)
-                    .anyMatch(p -> DistanceCalculator.distance(
-                            casa[0], casa[1], p.getLatitude(), p.getLongitude()) > 250);
-            assertTrue(seAleja, "a departure at position " + indice + " was not the bike leaving");
+    @Test
+    public void everyDepartureOfTheRealBikeIsARealDeparture() throws Exception {
+        List<Position> posiciones = cargar("moto-real.json");
+        double[] casa = aparcamiento(posiciones);
+        for (long radio : RADIOS) {
+            List<Long> salidas = salidas(posiciones, casa, radio);
+            // Not vacuous: the replica does leave home, and that must be seen.
+            assertFalse(salidas.isEmpty(), "radius " + radio + ": the real bike left home and nothing fired");
+            for (long inicio : salidas) {
+                boolean seAleja = posiciones.stream()
+                        .filter(Fijacion::tiene)
+                        .filter(p -> p.getFixTime().getTime() >= inicio
+                                && p.getFixTime().getTime() <= inicio + 180_000)
+                        .anyMatch(p -> DistanceCalculator.distance(
+                                casa[0], casa[1], p.getLatitude(), p.getLongitude()) > 250);
+                assertTrue(seAleja, "radius " + radio + ": a departure at " + new Date(inicio)
+                        + " was not the bike leaving");
+            }
+        }
+    }
+
+    @Test
+    public void theRealManoeuvreIsNotADepartureAndTheRealOneFiresOnce() throws Exception {
+        // Found in the second review: at 20:13:15 the replica did 16 km/h 74 m
+        // from where it sleeps, then 19 and 23 km/h, and at 20:13:49 it was parked
+        // again, off. One sample was enough to tell the family it had left, and
+        // the arming it spent was the one the real departure at 20:19:46 needed.
+        List<Position> posiciones = cargar("moto-real.json");
+        double[] casa = aparcamiento(posiciones);
+        for (long radio : RADIOS) {
+            List<Long> salidas = salidas(posiciones, casa, radio);
+            assertTrue(salidas.stream().noneMatch(t -> t >= hora("20:12:00") && t < hora("20:19:00")),
+                    "radius " + radio + ": the manoeuvre fired a departure");
+            assertEquals(1, salidas.stream().filter(t -> t >= hora("20:19:00") && t <= hora("20:23:00")).count(),
+                    "radius " + radio + ": the real departure of 20:19 must fire once, fired at " + salidas);
         }
     }
 
     @Test
     public void theRealParkingNeverLooksLikeADeparture() throws Exception {
+        // Every sample of the real parking - within 100 m of where it sleeps,
+        // whatever its speed or ignition: the drift, the manoeuvre at 16-23 km/h,
+        // the first metres of each ride - and never a departure, armed from the start.
         List<Position> posiciones = cargar("moto-real.json");
         double[] casa = aparcamiento(posiciones);
-        Sitio sitio = new Sitio(1, "Casa", new GeofenceCircle(
-                String.format(java.util.Locale.ROOT, "CIRCLE (%.6f %.6f, 100)", casa[0], casa[1])));
-        // Every still or slow position with a fix, as if the bike were armed at home.
-        for (Position p : posiciones) {
-            if (Fijacion.tiene(p) && p.getSpeed() < org.traccar.helper.UnitsConverter.knotsFromKph(15)) {
-                assertFalse(ReglasViaje.esSalida(java.util.Optional.of(sitio),
-                        ReglasViaje.dentro(List.of(sitio), p.getLatitude(), p.getLongitude()),
-                        p.getBoolean(Position.KEY_IGNITION), p.getSpeed()),
-                        "a slow position " + p.getDeviceTime() + " fired a departure");
-            }
+        List<Position> aparcamiento = posiciones.stream()
+                .filter(p -> !Fijacion.tiene(p) || DistanceCalculator.distance(
+                        casa[0], casa[1], p.getLatitude(), p.getLongitude()) <= 100)
+                .toList();
+        // Not vacuous: the parking has fast samples, above the riding threshold.
+        assertTrue(aparcamiento.stream().filter(Fijacion::tiene)
+                .filter(p -> p.getSpeed() >= org.traccar.helper.UnitsConverter.knotsFromKph(15)).count() >= 5);
+        for (long radio : RADIOS) {
+            assertEquals(List.of(), salidas(aparcamiento, casa, radio), "radius " + radio);
         }
     }
 

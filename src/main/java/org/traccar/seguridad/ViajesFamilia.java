@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.traccar.api.EnlacesDirectos;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
+import org.traccar.helper.DistanceCalculator;
 import org.traccar.helper.model.Fijacion;
 import org.traccar.model.Device;
 import org.traccar.model.Position;
@@ -41,6 +42,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -49,13 +51,22 @@ import java.util.concurrent.ExecutorService;
  * "Has left" and "has arrived" for the rider's emergency contacts
  * (improvement 115). The departure is seen on the positions, as they arrive;
  * the arrival, and the twelve hours after which a forgotten trip closes, by
- * TaskViajes from what is in the database, so a restart loses nothing.
+ * TaskViajes from what is in the database.
  *
  * A DEPARTURE IS ARMED, THEN FIRED. A position with a fix inside one of the
- * rider's places arms it; the first position with a fix outside, with the
- * ignition on and riding, fires it. Heartbeats without a fix (0,0) change
- * nothing, a fix drifting out of the garage does not ride, and a slow way out
- * stays armed until the bike picks up speed (found in review on 2026-09-29).
+ * rider's places arms it; two positions with a fix outside, with the ignition
+ * on and riding, at least 15 s apart and with nothing slower in between, fire
+ * it. Heartbeats without a fix (0,0) change nothing, a fix drifting out of the
+ * garage does not ride, a slow way out stays armed until the bike picks up
+ * speed, and one fast sample of a manoeuvre is not riding out.
+ *
+ * THE ARMING DOES NOT OUTLIVE ITS REASON. It goes when the bike is taken away
+ * with the ignition off (a tow truck, a van), when the rider has no places any
+ * more, and when the place it was armed from is no longer one of the rider's
+ * (another person now rides it). It lives in memory; after a restart it is
+ * rebuilt once per bike from the last position with a fix in the database,
+ * before the first decision (found in the second review on 2026-09-29: a
+ * restart overnight lost the first departure of the morning).
  *
  * Like the crash guard, it sends through an executor - alPosicion runs on the
  * Netty thread - and does nothing while the bot's inbox is off.
@@ -69,6 +80,9 @@ public class ViajesFamilia implements ReceptorBoton {
 
     private static final int POSICIONES_MAXIMAS = 500;
 
+    /** How many of the last positions are read to rebuild the arming after a restart. */
+    private static final int PREVIAS_MAXIMAS = 50;
+
     private final boolean activo;
     private final Storage storage;
     private final ClienteTelegram cliente;
@@ -78,8 +92,22 @@ public class ViajesFamilia implements ReceptorBoton {
     private final FirmaBoton firma;
     private final Executor envios;
 
-    /** Per device, the place a departure is armed from, if any. */
-    private final Map<Long, Sitio> armados = new ConcurrentHashMap<>();
+    /**
+     * A departure armed from {@code sitio}, where the bike was last seen at
+     * {@code latitud}/{@code longitud}, and the fix time of the first riding
+     * sample outside, if one has been seen.
+     */
+    private record Armado(Sitio sitio, double latitud, double longitud, Long primera) {
+        Armado con(Long otra) {
+            return new Armado(sitio, latitud, longitud, otra);
+        }
+    }
+
+    /** Per device, the departure armed, if any. */
+    private final Map<Long, Armado> armados = new ConcurrentHashMap<>();
+
+    /** The devices whose arming has been looked for in the database since the start. */
+    private final Set<Long> reconstruidos = ConcurrentHashMap.newKeySet();
 
     @Inject
     public ViajesFamilia(
@@ -108,7 +136,7 @@ public class ViajesFamilia implements ReceptorBoton {
     }
 
     /** A new position of a device. Runs on the Netty thread: it never throws. */
-    public void alPosicion(Position position, Position anterior) {
+    public void alPosicion(Position position) {
         if (!activo) {
             return;
         }
@@ -119,15 +147,36 @@ public class ViajesFamilia implements ReceptorBoton {
             long deviceId = position.getDeviceId();
             List<Sitio> propios = sitios.de(deviceId);
             if (propios.isEmpty()) {
+                armados.remove(deviceId);
                 return;
             }
             Optional<Sitio> ahora = ReglasViaje.dentro(propios, position.getLatitude(), position.getLongitude());
             if (ahora.isPresent()) {
-                armados.put(deviceId, ahora.get());
+                armados.put(deviceId, new Armado(ahora.get(), position.getLatitude(), position.getLongitude(), null));
+                reconstruidos.add(deviceId);
                 return;
             }
-            Optional<Sitio> armado = Optional.ofNullable(armados.get(deviceId));
-            if (!ReglasViaje.esSalida(armado, ahora, position.getBoolean(Position.KEY_IGNITION), position.getSpeed())) {
+            Armado armado = armado(deviceId, position, propios);
+            if (armado == null) {
+                return;
+            }
+            boolean contacto = position.getBoolean(Position.KEY_IGNITION);
+            if (!ReglasViaje.rodandoFuera(ahora, contacto, position.getSpeed())) {
+                double metros = DistanceCalculator.distance(
+                        armado.latitud(), armado.longitud(), position.getLatitude(), position.getLongitude());
+                if (ReglasViaje.seLaLlevan(contacto, metros)) {
+                    armados.remove(deviceId);
+                } else if (armado.primera() != null) {
+                    armados.put(deviceId, armado.con(null));
+                }
+                return;
+            }
+            long cuando = position.getFixTime().getTime();
+            Long primera = armado.primera();
+            if (primera == null || !ReglasViaje.confirmaSalida(primera, cuando)) {
+                if (primera == null || cuando - primera > ReglasViaje.VENTANA_SALIDA || cuando < primera) {
+                    armados.put(deviceId, armado.con(cuando));
+                }
                 return;
             }
             armados.remove(deviceId);
@@ -138,10 +187,57 @@ public class ViajesFamilia implements ReceptorBoton {
             if (contactos.isEmpty()) {
                 return;
             }
-            abrir(deviceId, armado.get().nombre(), contactos);
+            abrir(deviceId, armado.sitio().nombre(), contactos);
         } catch (Exception e) {
             LOGGER.warn("Trip check failed for device {}", position.getDeviceId(), e);
         }
+    }
+
+    /**
+     * The departure armed for the device, if it still holds: from a place that
+     * is still one of the rider's. The first time a device is seen since the
+     * start, it is looked for in the database.
+     */
+    private Armado armado(long deviceId, Position position, List<Sitio> propios) {
+        Armado guardado = armados.get(deviceId);
+        if (guardado != null) {
+            if (propios.stream().noneMatch(sitio -> sitio.id() == guardado.sitio().id())) {
+                armados.remove(deviceId);
+                return null;
+            }
+            return guardado;
+        }
+        Armado armado = null;
+        if (reconstruidos.add(deviceId)) {
+            try {
+                armado = reconstruir(deviceId, position, propios);
+                if (armado != null) {
+                    armados.put(deviceId, armado);
+                }
+            } catch (StorageException e) {
+                reconstruidos.remove(deviceId);
+                LOGGER.warn("Trip arming of device {} could not be rebuilt", deviceId, e);
+            }
+        }
+        return armado;
+    }
+
+    /** From the last position with a fix before this one: armed if it was inside a place. */
+    private Armado reconstruir(long deviceId, Position position, List<Sitio> propios) throws StorageException {
+        Position previa;
+        try (var stream = storage.getObjectsStream(Position.class, new Request(new Columns.All(),
+                new Condition.And(
+                        new Condition.Equals("deviceId", deviceId),
+                        new Condition.Compare("fixTime", "<", position.getFixTime())),
+                new Order("fixTime", true, PREVIAS_MAXIMAS)))) {
+            previa = stream.filter(Fijacion::tiene).max(Comparator.comparing(Position::getFixTime)).orElse(null);
+        }
+        if (previa == null) {
+            return null;
+        }
+        return ReglasViaje.dentro(propios, previa.getLatitude(), previa.getLongitude())
+                .map(sitio -> new Armado(sitio, previa.getLatitude(), previa.getLongitude(), null))
+                .orElse(null);
     }
 
     private void abrir(long deviceId, String origen, List<Destinatarios.Destinatario> contactos)

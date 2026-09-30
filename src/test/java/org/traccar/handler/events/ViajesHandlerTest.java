@@ -14,8 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Every position of a bike reaches the trips of improvement 115, together with
- * the one before it.
+ * Every position of a bike reaches the trips of improvement 115.
  */
 public class ViajesHandlerTest {
 
@@ -28,7 +27,7 @@ public class ViajesHandlerTest {
     }
 
     @Test
-    public void everyPositionGoesToTheTripsWithTheOneBeforeIt() {
+    public void everyPositionGoesToTheTrips() {
         CacheManager cacheManager = mock(CacheManager.class);
         ViajesFamilia viajes = mock(ViajesFamilia.class);
         BaseEventHandler.Callback callback = mock(BaseEventHandler.Callback.class);
@@ -36,7 +35,7 @@ public class ViajesHandlerTest {
         Position position = posicion(2_000);
         when(cacheManager.getPosition(8)).thenReturn(anterior);
         new ViajesHandler(cacheManager, viajes).onPosition(position, callback);
-        verify(viajes).alPosicion(position, anterior);
+        verify(viajes).alPosicion(position);
         // A departure is a Telegram message to the contacts, not an event.
         verify(callback, never()).eventDetected(any());
     }
