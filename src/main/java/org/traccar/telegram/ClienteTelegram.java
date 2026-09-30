@@ -111,7 +111,11 @@ public class ClienteTelegram {
      */
     public Lectura leer(long desde, int espera) {
         ObjectNode cuerpo = objectMapper.createObjectNode();
-        cuerpo.put("offset", desde);
+        if (desde != 0) {
+            // Without an offset Telegram answers from the oldest update nobody has
+            // confirmed: BuzonTelegram explains why an idle inbox reads that way.
+            cuerpo.put("offset", desde);
+        }
         cuerpo.put("timeout", espera);
         cuerpo.putArray("allowed_updates").add("message").add("callback_query");
         try (Response response = leerCliente.target(base + "getUpdates").request()
@@ -122,6 +126,13 @@ public class ClienteTelegram {
                 String descripcion = json.path("description").asText(null);
                 LOGGER.warn("Telegram getUpdates answered HTTP {}: {}", estado, descripcion);
                 return new Lectura(estado, objectMapper.createArrayNode(), descripcion);
+            }
+            if (!json.path("ok").asBoolean(false) || !json.path("result").isArray()) {
+                // A 2xx that is not Telegram's answer - ok:false, a proxy's page -
+                // is no reading. Taken for "no messages" it kept the watchdog quiet
+                // while nothing was read.
+                LOGGER.warn("Telegram getUpdates answered HTTP {} without a result", estado);
+                return new Lectura(0, objectMapper.createArrayNode(), "HTTP " + estado + " without a result");
             }
             return new Lectura(estado, json.path("result"), null);
         } catch (Exception e) {
