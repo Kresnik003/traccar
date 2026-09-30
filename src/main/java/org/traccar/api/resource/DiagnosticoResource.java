@@ -149,6 +149,8 @@ public class DiagnosticoResource extends BaseResource {
         "org.traccar.seguridad.ReglasGolpe#dondeEsta",
         // 0067, la cadena de seguridad a la vista de Prometheus.
         "org.traccar.seguridad.VigiaSeguridad#render",
+        // 0074, la convocatoria de quedada y «necesito parar».
+        "org.traccar.quedadas.Convocatorias",
     };
 
     private static final String[] CONFIG_KEYS = {
