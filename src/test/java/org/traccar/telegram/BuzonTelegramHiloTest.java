@@ -17,8 +17,10 @@ import org.traccar.storage.query.Request;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NavigableMap;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -34,6 +36,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.after;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -182,8 +185,10 @@ public class BuzonTelegramHiloTest {
         buzon.stop();
 
         // A long poll of 25 s from the saved offset, then from the next one.
-        verify(cliente, times(1)).leer(5, 25);
-        assertEquals(List.of(5L, 6L, 6L, 6L), desdes.subList(0, 4));
+        // Idle it reads without an offset (0); right after a batch, with the one
+        // that confirms it.
+        verify(cliente, times(1)).leer(6, 25);
+        assertEquals(List.of(0L, 6L, 0L, 0L), desdes.subList(0, 4));
         verify(guardian).pulsado(7, "900");
         verify(cliente).responderBoton("cb5", "Perfecto");
         // Saved once, when it moved - not after every empty read - and on the
@@ -213,8 +218,8 @@ public class BuzonTelegramHiloTest {
 
         // 1 s, 2 s, 4 s; and once it works again the count starts over.
         assertEquals(List.of(1_000L, 2_000L, 4_000L, 1_000L), esperas.subList(0, 4));
-        // A refused read is not "nothing new": the offset does not move with it.
-        assertEquals(List.of(5L, 5L, 5L, 5L, 6L), desdes.subList(0, 5));
+        // A refused read confirms nothing, and after the batch the next read does.
+        assertEquals(List.of(0L, 0L, 0L, 0L, 6L), desdes.subList(0, 5));
     }
 
     @Test
@@ -240,7 +245,7 @@ public class BuzonTelegramHiloTest {
         buzon.stop();
 
         verify(guardian, times(1)).pulsado(7, "900");
-        assertEquals(List.of(5L, 6L, 7L), desdes.subList(0, 3));
+        assertEquals(List.of(0L, 6L, 7L), desdes.subList(0, 3));
     }
 
     @Test
@@ -320,6 +325,130 @@ public class BuzonTelegramHiloTest {
         buzon.start();
         verify(cliente, after(500).never()).leer(anyLong(), anyInt());
         buzon.stop();
+    }
+
+    // ---- Against a Telegram that keeps and confirms updates like the Bot API ----
+
+    private final NavigableMap<Long, String> telegram = new ConcurrentSkipListMap<>();
+
+    /**
+     * Unconfirmed updates stay until getUpdates is called with an offset above
+     * them - also one numbered later, below the offset - and -1 forgets all but
+     * the newest. A script cannot tell reading with an offset from without.
+     */
+    private void comoTelegram() {
+        // doAnswer: re-stubbing with when() would run the old answer once.
+        doAnswer(invocacion -> {
+            hilo = Thread.currentThread();
+            long offset = invocacion.getArgument(0);
+            desdes.add(offset);
+            if (offset < 0) {
+                if (!telegram.isEmpty()) {
+                    telegram.headMap(telegram.lastKey()).clear();
+                }
+            } else if (offset > 0) {
+                telegram.headMap(offset).clear();
+            }
+            pausa(10);
+            // Never an update below the offset, even one added while waiting: with
+            // the old offset a low-numbered update never comes.
+            return lectura("[" + String.join(",", (offset > 0 ? telegram.tailMap(offset) : telegram).values()) + "]");
+        }).when(cliente).leer(anyLong(), anyInt());
+    }
+
+    @Test
+    public void aButtonNumberedAtRandomBelowTheLastOneStillArrives() throws Exception {
+        // After a week without updates Telegram may number the next one at random,
+        // below the last. Until 2026-09-30 the inbox kept asking from its saved
+        // offset, and that "I'm fine" was confirmed away without being read.
+        comoTelegram();
+        EstadoTelegram estado = guardado(500);
+        BuzonTelegram buzon = activo();
+        buzon.start();
+        esperarA(() -> desdes.size() >= 2);
+        telegram.put(37L, boton(37, "g", 7));
+        verify(guardian, timeout(5_000)).pulsado(7, "900");
+        esperarA(telegram::isEmpty);
+        buzon.stop();
+
+        // Confirmed with its own number, and that is what is saved now.
+        assertTrue(desdes.contains(38L), desdes.toString());
+        ArgumentCaptor<EstadoTelegram> captor = ArgumentCaptor.forClass(EstadoTelegram.class);
+        verify(storage).updateObject(captor.capture(), any());
+        assertEquals(38, captor.getValue().getUltimo());
+        assertEquals(500, estado.getUltimo(), "the row read at start is not the one written");
+    }
+
+    @Test
+    public void aRestartDoesNotHandleAgainWhatWasHandledButNotConfirmed() throws Exception {
+        comoTelegram();
+        guardado(57);
+        telegram.put(55L, boton(55, "g", 1));
+        telegram.put(56L, boton(56, "g", 2));
+        telegram.put(57L, boton(57, "g", 3));
+        BuzonTelegram buzon = activo();
+        buzon.start();
+        verify(guardian, timeout(5_000)).pulsado(3, "900");
+        esperarA(telegram::isEmpty);
+        buzon.stop();
+
+        verify(guardian, never()).pulsado(1, "900");
+        verify(guardian, never()).pulsado(2, "900");
+    }
+
+    @Test
+    public void theFirstStartForgetsTheBacklogAndConfirmsTheNewest() throws Exception {
+        comoTelegram();
+        when(storage.getObject(eq(EstadoTelegram.class), any())).thenReturn(null);
+        telegram.put(28L, boton(28, "g", 1));
+        telegram.put(29L, boton(29, "g", 2));
+        telegram.put(30L, boton(30, "g", 3));
+        BuzonTelegram buzon = activo();
+        buzon.start();
+        esperarA(telegram::isEmpty);
+        esperarA(() -> desdes.size() >= 5);
+        buzon.stop();
+
+        verify(guardian, never()).pulsado(anyLong(), anyString());
+        assertEquals(-1L, desdes.get(0), desdes.toString());
+        assertTrue(desdes.contains(31L), desdes.toString());
+    }
+
+    @Test
+    public void aFailedFirstStartTriesAgainAndNeverHandlesTheBacklog() throws Exception {
+        // Until 2026-09-30 a failed getUpdates(-1) left the inbox reading from 0:
+        // the whole backlog was handled, old buttons and sign-ups included.
+        when(storage.getObject(eq(EstadoTelegram.class), any())).thenReturn(null);
+        guion.add(fallo(409));
+        guion.add(fallo(502));
+        guion.add(lectura("[" + boton(30, "g", 7) + "]"));
+        BuzonTelegram buzon = activo();
+        buzon.start();
+        esperarA(() -> desdes.size() >= 5);
+        buzon.stop();
+
+        verify(guardian, never()).pulsado(anyLong(), anyString());
+        assertEquals(List.of(-1L, -1L, -1L), desdes.subList(0, 3));
+        assertEquals(List.of(1_000L, 2_000L), esperas.subList(0, 2));
+        // Only once Telegram answered is the first start done.
+        ArgumentCaptor<EstadoTelegram> captor = ArgumentCaptor.forClass(EstadoTelegram.class);
+        verify(storage).addObject(captor.capture(), any());
+        assertEquals(31, captor.getValue().getUltimo());
+    }
+
+    @Test
+    public void aLongOutageWaitsEightSecondsAtMostAndTheButtonIsReadWhenItEnds() throws Exception {
+        guardado(5);
+        for (int i = 0; i < 7; i++) {
+            guion.add(fallo(i % 2 == 0 ? 502 : 409));
+        }
+        guion.add(lectura("[" + boton(5, "g", 7) + "]"));
+        BuzonTelegram buzon = activo();
+        buzon.start();
+        verify(guardian, timeout(5_000)).pulsado(7, "900");
+        buzon.stop();
+
+        assertEquals(List.of(1_000L, 2_000L, 4_000L, 8_000L, 8_000L, 8_000L, 8_000L), esperas.subList(0, 7));
     }
 
     // ---- The watchdog: when the inbox last read the bot (VigiaSeguridad) ----

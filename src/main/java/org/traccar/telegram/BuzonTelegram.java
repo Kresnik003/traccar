@@ -26,6 +26,7 @@ import org.traccar.config.Keys;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
 import org.traccar.model.EstadoTelegram;
+import org.traccar.model.User;
 import org.traccar.seguridad.Destinatarios;
 import org.traccar.seguridad.GuardianGolpes;
 import org.traccar.seguridad.Mensajes;
@@ -47,8 +48,14 @@ import java.util.Map;
  * emergency contacts, "/baja" and the buttons of the safety messages.
  *
  * Only one reader per bot: two readers of getUpdates steal each other's
- * messages. It does not run on a secondary node, and scripts that read
- * getUpdates by hand (chats-telegram.sh) stop seeing messages while it runs.
+ * messages. It does not run on a secondary node, and chats-telegram.sh does
+ * not read getUpdates while telegram.buzon is on.
+ *
+ * The offset is sent only right after a batch, to confirm it; an idle inbox
+ * reads without one, from the oldest update nobody has confirmed. After a week
+ * without updates Telegram may number the next one at random, below the last:
+ * asked with the old offset it would never come - an "I'm fine" lost, and the
+ * family of somebody who is fine warned. Found in review on 2026-09-30.
  */
 @Singleton
 public class BuzonTelegram implements LifecycleObject {
@@ -56,6 +63,9 @@ public class BuzonTelegram implements LifecycleObject {
     private static final Logger LOGGER = LoggerFactory.getLogger(BuzonTelegram.class);
 
     private static final int ESPERA = 25;
+
+    /** What one getUpdates returns at most (Telegram's default limit). */
+    static final int LOTE = 100;
 
     /** How the inbox waits after a failed read: {@code Thread::sleep}, except in tests. */
     interface Dormir {
@@ -132,62 +142,77 @@ public class BuzonTelegram implements LifecycleObject {
     }
 
     /**
-     * Where to start reading. Only the very first start - no row yet - skips
-     * what somebody wrote to the bot before today; after that, what arrives
-     * while Traccar is stopped is read when it comes back, even if the bot had
-     * never received anything (offset 0).
+     * One past the last update already handled, so a batch handled right before
+     * a restart is not handled again. Only the very first start - no row yet -
+     * asks Telegram to forget what somebody wrote to the bot before today, and
+     * while Telegram does not answer that it returns null: until 2026-09-30 a
+     * failed first start read from 0 and handled the whole backlog. After that,
+     * what arrives while Traccar is stopped is read when it comes back.
      */
-    long inicio() {
+    Long inicio() {
         Long guardado = leerUltimo();
         if (guardado != null) {
             return guardado;
         }
-        // offset -1 returns only the newest update. If Telegram does not answer,
-        // nothing is saved: the next start is still the first one.
+        // offset -1 returns only the newest update and forgets the rest.
         ClienteTelegram.Lectura lectura = cliente.leer(-1, 0);
         if (!lectura.ok()) {
-            return 0;
+            return null;
         }
-        long desde = procesarNada(lectura.updates());
+        long desde = siguiente(lectura.updates());
         guardarUltimo(desde);
         return desde;
     }
 
     private void bucle() {
-        long desde = inicio();
         int fallos = 0;
-        while (corriendo) {
-            try {
-                ClienteTelegram.Lectura lectura = cliente.leer(desde, ESPERA);
-                if (!lectura.ok()) {
-                    // Refused or unreachable: logged by the client, and waited on
-                    // longer each time instead of a loop at full speed.
+        try {
+            Long procesados = null;
+            while (corriendo && procesados == null) {
+                procesados = inicio();
+                if (procesados == null) {
                     fallos += 1;
                     dormir.dormir(esperaTrasFallos(fallos));
-                    continue;
                 }
-                fallos = 0;
-                ultimaLectura = System.currentTimeMillis();
-                long siguiente = procesar(lectura.updates(), desde);
-                if (siguiente != desde) {
-                    desde = siguiente;
-                    guardarUltimo(desde);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            } catch (RuntimeException e) {
-                LOGGER.warn("Telegram inbox error", e);
             }
+            fallos = 0;
+            long confirmar = 0;
+            while (corriendo) {
+                try {
+                    ClienteTelegram.Lectura lectura = cliente.leer(confirmar, ESPERA);
+                    if (!lectura.ok()) {
+                        // Refused or unreachable: logged by the client, and waited on
+                        // longer each time instead of a loop at full speed.
+                        fallos += 1;
+                        dormir.dormir(esperaTrasFallos(fallos));
+                        continue;
+                    }
+                    fallos = 0;
+                    ultimaLectura = System.currentTimeMillis();
+                    confirmar = procesar(lectura.updates(), procesados);
+                    if (confirmar != 0 && confirmar != procesados) {
+                        procesados = confirmar;
+                        guardarUltimo(procesados);
+                    }
+                } catch (RuntimeException e) {
+                    LOGGER.warn("Telegram inbox error", e);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
-    /** 1 s, 2 s, 4 s... up to a minute. */
+    /**
+     * 1 s, 2 s, 4 s, then 8 s for as long as it lasts: no longer, so an "I'm fine"
+     * pressed while Telegram was failing is read seconds after it comes back, not
+     * after the two minutes of the countdown (a minute until 2026-09-30).
+     */
     static long esperaTrasFallos(int fallos) {
-        return Math.min(60_000L, 1_000L << Math.min(Math.max(fallos - 1, 0), 16));
+        return 1_000L << Math.min(Math.max(fallos - 1, 0), 3);
     }
 
-    private static long procesarNada(JsonNode updates) {
+    private static long siguiente(JsonNode updates) {
         long siguiente = 0;
         for (JsonNode update : updates) {
             siguiente = Math.max(siguiente, update.path("update_id").asLong() + 1);
@@ -195,12 +220,20 @@ public class BuzonTelegram implements LifecycleObject {
         return siguiente;
     }
 
-    /** Handles a batch and returns the next offset to ask for. */
-    long procesar(JsonNode updates, long desde) {
-        long siguiente = desde;
+    /**
+     * Handles a batch and returns the offset that confirms it - one past its
+     * newest update - or 0 if it was empty. An update just below what was
+     * already handled is a batch handled before a restart and never confirmed,
+     * and is skipped; one far below is new, numbered at random by Telegram.
+     */
+    long procesar(JsonNode updates, long procesados) {
+        long siguiente = 0;
         for (JsonNode update : updates) {
             Actualizacion actualizacion = Actualizacion.leer(update);
             siguiente = Math.max(siguiente, actualizacion.updateId() + 1);
+            if (actualizacion.updateId() < procesados && procesados - actualizacion.updateId() <= LOTE) {
+                continue;
+            }
             try {
                 switch (actualizacion) {
                     case Actualizacion.Alta alta -> alta(alta);
@@ -219,22 +252,35 @@ public class BuzonTelegram implements LifecycleObject {
     private void alta(Actualizacion.Alta alta) throws StorageException {
         Contacto contacto = storage.getObject(Contacto.class, new Request(
                 new Columns.All(), new Condition.Equals("codigo", CodigosAlta.huella(alta.codigo()))));
+        if (contacto != null && contacto.getConfirmado() != null && alta.chatId().equals(contacto.getChatId())) {
+            // The same sign-up read twice (handled right before a restart, never
+            // confirmed to Telegram): already welcomed, nothing to say again.
+            return;
+        }
         if (contacto == null || !CodigosAlta.vale(contacto, new Date())) {
             cliente.enviar(alta.chatId(), Mensajes.codigoNoValido(), List.of());
             return;
         }
+        Date ahora = new Date();
         contacto.setChatId(alta.chatId());
-        contacto.setConfirmado(new Date());
-        contacto.setCodigo(null);
+        contacto.setConfirmado(ahora);
+        // The code is spent: it expires now, and its hash stays only so that the
+        // same sign-up read twice is recognised. After /baja it does not come back.
+        contacto.setCaduca(ahora);
         contacto.setRechazado(null);
         storage.updateObject(contacto, new Request(
-                new Columns.Include("chatId", "confirmado", "codigo", "rechazado"),
+                new Columns.Include("chatId", "confirmado", "caduca", "rechazado"),
                 new Condition.Equals("id", contacto.getId())));
         Device device = storage.getObject(Device.class, new Request(
                 new Columns.All(), new Condition.Equals("id", contacto.getDeviceId())));
-        cliente.enviar(alta.chatId(), Mensajes.bienvenida(
-                destinatarios.persona(contacto.getDeviceId()), device != null ? device.getName() : "moto"),
-                List.of());
+        String moto = device != null ? device.getName() : "moto";
+        String persona = destinatarios.motorista(contacto.getDeviceId())
+                .map(User::getName)
+                .filter(name -> name != null && !name.isBlank())
+                .orElse(null);
+        // Without a rider nobody is named: "your contact" read like a person.
+        cliente.enviar(alta.chatId(), persona != null
+                ? Mensajes.bienvenida(persona, moto) : Mensajes.bienvenidaDeMoto(moto), List.of());
     }
 
     private void baja(Actualizacion.Baja baja) throws StorageException {

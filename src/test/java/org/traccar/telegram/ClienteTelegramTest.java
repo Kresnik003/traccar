@@ -169,6 +169,36 @@ public class ClienteTelegramTest {
     }
 
     @Test
+    public void anIdleReadGoesWithoutAnOffset() {
+        // 0 means "from the oldest update nobody confirmed"; any other value is
+        // sent as it is, -1 (forget all but the newest) included.
+        ClienteTelegram c = cliente(200, "{\"ok\":true,\"result\":[]}");
+        c.leer(0, 25);
+        c.leer(7, 25);
+        c.leer(-1, 0);
+        assertFalse(cuerpos.get(0).toString().contains("offset"), cuerpos.get(0).toString());
+        assertTrue(cuerpos.get(1).toString().contains("\"offset\":7"), cuerpos.get(1).toString());
+        assertTrue(cuerpos.get(2).toString().contains("\"offset\":-1"), cuerpos.get(2).toString());
+    }
+
+    @Test
+    public void a2xxThatIsNotTelegramsAnswerIsNoReading() {
+        // Taken for "no messages" it would keep BuzonTelegramSinLeer quiet while
+        // nothing is being read.
+        for (String cuerpo : new String[] {
+            "{\"ok\":false,\"result\":[{\"update_id\":5}]}",
+            "{\"ok\":true}",
+            "{\"result\":[]}",
+            "{\"ok\":true,\"result\":{}}",
+        }) {
+            var lectura = cliente(200, cuerpo).leer(0, 25);
+            assertFalse(lectura.ok(), cuerpo);
+            assertEquals(0, lectura.updates().size(), cuerpo);
+            assertTrue(lectura.updates().isArray(), cuerpo);
+        }
+    }
+
+    @Test
     public void withoutABaseUrlItTalksToTelegramItself() {
         cliente(200, "{\"ok\":true}", null).enviar("42", "hola", List.of());
         assertEquals("https://api.telegram.org/bot123:abc/sendMessage", urls.get(0));
