@@ -81,11 +81,15 @@ public class PropiedadesSeguridadTest {
         return p;
     }
 
-    /** After the crash, something that is NOT riding on: still, slow, ignition off, no fix or trace. */
+    /**
+     * After the crash, something that is NOT riding on: still, slow, ignition off and
+     * no faster than 20 km/h, no fix or trace. Faster than that without the ignition
+     * is riding (30/9: the car reports the ignition off while driving).
+     */
     private static Position noEsMarcha(Random r, long ms) {
         return switch (r.nextInt(4)) {
             case 0 -> posicion(ms, r.nextBoolean(), r.nextDouble() * 9.9, 43.5, -8, true);
-            case 1 -> posicion(ms, false, 10 + r.nextDouble() * 100, 43.5, -8, true);
+            case 1 -> posicion(ms, false, 10 + r.nextDouble() * 10, 43.5, -8, true);
             case 2 -> posicion(ms, true, 10 + r.nextDouble() * 100, 0, 0, false);
             default -> {
                 Position p = posicion(ms, true, 10 + r.nextDouble() * 100, 43.5, -8, true);
@@ -132,6 +136,24 @@ public class PropiedadesSeguridadTest {
             despues.add(posicion(primera, true, 11 + r.nextDouble() * 100, 43.6, -8, true));
             despues.add(posicion(primera + ReglasGolpe.SEPARACION + r.nextInt(60_000),
                     true, 11 + r.nextDouble() * 100, 43.7, -8, true));
+            Collections.shuffle(despues, r);
+            assertTrue(ReglasGolpe.seHaMovido(new Date(T), despues), "case " + caso);
+        }
+    }
+
+    @Test
+    public void drivingOnWithTheIgnitionReportedOffIsAlwaysSeen() {
+        // The car of 30/9: the ignition guessed from the voltage says false while driving.
+        Random r = new Random(SEMILLA + 5);
+        for (int caso = 0; caso < 5_000; caso++) {
+            List<Position> despues = new ArrayList<>();
+            for (int i = r.nextInt(40); i > 0; i--) {
+                despues.add(caos(r, T + r.nextInt(120_000)));
+            }
+            long primera = T + ReglasGolpe.ASENTAMIENTO + r.nextInt(60_000);
+            despues.add(posicion(primera, false, 21 + r.nextDouble() * 100, 43.6, -8, true));
+            despues.add(posicion(primera + ReglasGolpe.SEPARACION + r.nextInt(60_000),
+                    false, 21 + r.nextDouble() * 100, 43.7, -8, true));
             Collections.shuffle(despues, r);
             assertTrue(ReglasGolpe.seHaMovido(new Date(T), despues), "case " + caso);
         }
@@ -275,6 +297,7 @@ public class PropiedadesSeguridadTest {
         guardia.setLongitud(origen.getLongitud());
         guardia.setEstado(origen.getEstado());
         guardia.setEnlace(origen.getEnlace());
+        guardia.setResueltos(origen.getResueltos());
         return guardia;
     }
 

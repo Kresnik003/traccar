@@ -59,7 +59,9 @@ public class VigiaSeguridadTest {
         assertEquals("0", valor(texto, "nordes_guardias_vencidas"));
         assertEquals("0", valor(texto, "nordes_avisos_perdidos_total"));
         assertEquals("12", valor(texto, "nordes_buzon_sin_leer_segundos"));
+        assertEquals("0", valor(texto, "nordes_preguntas_fallidas_total"));
         assertTrue(texto.contains("# TYPE nordes_avisos_perdidos_total counter\n"), texto);
+        assertTrue(texto.contains("# TYPE nordes_preguntas_fallidas_total counter\n"), texto);
         assertTrue(texto.contains("# TYPE nordes_buzon_sin_leer_segundos gauge\n"), texto);
         assertTrue(texto.contains("# HELP nordes_guardias_vencidas "), texto);
     }
@@ -125,6 +127,14 @@ public class VigiaSeguridadTest {
         ahora = ARRANQUE + 60_000;
         when(guardian.ultimaRevision()).thenReturn(ahora + 5_000);
         assertEquals("0", valor(vigia.render(), "nordes_guardias_revision_segundos"));
+    }
+
+    @Test
+    public void aQuestionThatNeverReachedTheRiderShows() {
+        // 30/9: the question went out once, and a failure left only a WARN in the log.
+        encendido();
+        when(guardian.preguntasFallidas()).thenReturn(3L);
+        assertEquals("3", valor(vigia().render(), "nordes_preguntas_fallidas_total"));
     }
 
 }

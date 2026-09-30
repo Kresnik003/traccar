@@ -48,9 +48,20 @@ public final class Mensajes {
         return String.format(Locale.ROOT, "%.5f, %.5f", latitud, longitud);
     }
 
-    /** When no position of the bike has a fix yet: the live link will show it. */
-    public static String lugarDesconocido() {
-        return "un lugar que el GPS aún no ha fijado (mira la ubicación en directo)";
+    /** The last place known before the crash, when nothing after it has a fix. */
+    public static String lugarAntesDelGolpe(String direccion, double latitud, double longitud) {
+        return lugar(direccion, latitud, longitud) + " (su última posición conocida antes del golpe)";
+    }
+
+    /**
+     * When no position of the bike has a fix. The live link is promised only if
+     * the message carries one (found in review on 2026-09-30: a message without
+     * a link sent people to look at a live location it did not include).
+     */
+    public static String lugarDesconocido(boolean conEnlace) {
+        return conEnlace
+                ? "un lugar que el GPS aún no ha fijado (mira la ubicación en directo)"
+                : "un lugar que el GPS aún no ha fijado";
     }
 
     public static String aContacto(String persona, String moto, Date hora, String lugar, String enlace) {

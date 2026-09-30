@@ -30,6 +30,12 @@ public class Guardia extends BaseModel {
     public static final String ESPERANDO = "esperando";
     public static final String CANCELADA_BOTON = "cancelada_boton";
     public static final String CANCELADA_MOVIMIENTO = "cancelada_movimiento";
+    /**
+     * The warning is going out: the limit passed and nobody cancelled it, but not
+     * every recipient has been served yet. Kept in the database so a restart in
+     * the middle of the retries sends what is missing instead of losing it.
+     */
+    public static final String AVISANDO = "avisando";
     public static final String AVISADA = "avisada";
 
     private long deviceId;
@@ -120,6 +126,21 @@ public class Guardia extends BaseModel {
 
     public void setEnlace(String enlace) {
         this.enlace = enlace;
+    }
+
+    /**
+     * The chats already served while warning, as ",901,905,": the message went
+     * out, Telegram refused it for good (403) or it was given up after every
+     * retry. A restart sends only to the others.
+     */
+    private String resueltos;
+
+    public String getResueltos() {
+        return resueltos;
+    }
+
+    public void setResueltos(String resueltos) {
+        this.resueltos = resueltos;
     }
 
 }

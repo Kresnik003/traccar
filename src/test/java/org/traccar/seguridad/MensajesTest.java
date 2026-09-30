@@ -75,9 +75,27 @@ public class MensajesTest {
 
     @Test
     public void whenNoPositionHasAFixTheMessageSaysSoAndPointsToTheLiveMap() {
-        assertEquals("un lugar que el GPS aún no ha fijado (mira la ubicación en directo)", Mensajes.lugarDesconocido());
-        String texto = Mensajes.aContacto("Juan", "Ducati", HORA, Mensajes.lugarDesconocido(), "https://n.es/?token=t");
+        assertEquals("un lugar que el GPS aún no ha fijado (mira la ubicación en directo)",
+                Mensajes.lugarDesconocido(true));
+        String texto = Mensajes.aContacto(
+                "Juan", "Ducati", HORA, Mensajes.lugarDesconocido(true), "https://n.es/?token=t");
         assertTrue(texto.contains(", en un lugar que el GPS aún no ha fijado"), texto);
+    }
+
+    @Test
+    public void withoutALinkTheMessageDoesNotPromiseALiveMap() {
+        // Found in review on 2026-09-30: it sent people to a live location it did not include.
+        assertEquals("un lugar que el GPS aún no ha fijado", Mensajes.lugarDesconocido(false));
+        String texto = Mensajes.aContacto("Juan", "Ducati", HORA, Mensajes.lugarDesconocido(false), null);
+        assertFalse(texto.contains("directo"), texto);
+    }
+
+    @Test
+    public void theLastPlaceBeforeTheCrashSaysWhatItIs() {
+        assertEquals("Avenida del Mar, Ferrol (su última posición conocida antes del golpe)",
+                Mensajes.lugarAntesDelGolpe("Avenida del Mar, Ferrol", 43.1, -8.2));
+        assertEquals("43.10000, -8.20000 (su última posición conocida antes del golpe)",
+                Mensajes.lugarAntesDelGolpe(null, 43.1, -8.2));
     }
 
     @Test
