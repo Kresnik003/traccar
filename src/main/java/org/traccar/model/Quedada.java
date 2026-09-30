@@ -15,9 +15,11 @@
  */
 package org.traccar.model;
 
+import org.traccar.storage.QueryIgnore;
 import org.traccar.storage.StorageName;
 
 import java.util.Date;
+import java.util.Map;
 
 /**
  * A group ride: over an imported route, on a known circuit, or free.
@@ -146,6 +148,77 @@ public class Quedada extends BaseModel {
 
     public void setEntornohash(String entornohash) {
         this.entornohash = entornohash;
+    }
+
+
+    /*
+     * The call to ride (improvement 116): what is sent over WhatsApp. The time
+     * is `inicio`; the meeting point, if any, is salidalat/salidalon, and 0,0
+     * means none - it is never a real place in Spain, and a nullable Double is
+     * written by the storage as the text "null".
+     */
+    private String briefing;
+
+    public String getBriefing() {
+        return briefing;
+    }
+
+    public void setBriefing(String briefing) {
+        this.briefing = briefing;
+    }
+
+    private String salidanombre;
+
+    public String getSalidanombre() {
+        return salidanombre;
+    }
+
+    public void setSalidanombre(String salidanombre) {
+        this.salidanombre = salidanombre;
+    }
+
+    private double salidalat;
+
+    public double getSalidalat() {
+        return salidalat;
+    }
+
+    public void setSalidalat(double salidalat) {
+        this.salidalat = salidalat;
+    }
+
+    private double salidalon;
+
+    public double getSalidalon() {
+        return salidalon;
+    }
+
+    public void setSalidalon(double salidalon) {
+        this.salidalon = salidalon;
+    }
+
+    /** The code of the public link, or null. Only its organizer ever gets it back. */
+    private String convocatoria;
+
+    public String getConvocatoria() {
+        return convocatoria;
+    }
+
+    public void setConvocatoria(String convocatoria) {
+        this.convocatoria = convocatoria;
+    }
+
+    /** What the caller can do with this ride; worked out per request, never stored. */
+    private Map<String, Boolean> capacidades;
+
+    @QueryIgnore
+    public Map<String, Boolean> getCapacidades() {
+        return capacidades;
+    }
+
+    @QueryIgnore
+    public void setCapacidades(Map<String, Boolean> capacidades) {
+        this.capacidades = capacidades;
     }
 
 }

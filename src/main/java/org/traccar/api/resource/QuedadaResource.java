@@ -34,6 +34,7 @@ import org.traccar.model.QuedadaEquipo;
 import org.traccar.model.QuedadaUsuario;
 import org.traccar.model.Ruta;
 import org.traccar.model.User;
+import org.traccar.quedadas.Convocatorias;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
@@ -75,6 +76,25 @@ public class QuedadaResource extends BaseResource {
 
     @Inject
     private DataSource dataSource;
+
+    @Inject
+    private Convocatorias convocatorias;
+
+    private final Convocatorias.Permiso permiso =
+            (userId, deviceId) -> permissionsService.checkPermission(Device.class, userId, deviceId);
+
+    /**
+     * What goes out to the caller: the public code only to its organizer (or an
+     * administrator), and what the caller may do with the ride.
+     */
+    private Quedada paraElQueMira(Quedada quedada) throws StorageException {
+        if (quedada.getCreadorId() != getUserId() && !esAdmin()) {
+            quedada.setConvocatoria(null);
+        }
+        quedada.setCapacidades(Map.of(
+                "parada", convocatorias.puedePedirParada(getUserId(), quedada, permiso)));
+        return quedada;
+    }
 
     private static final List<String> MODALIDADES = List.of("carrera", "motoclub", "rider");
     private static final List<String> TIPOS = List.of("ruta", "circuito", "libre");
@@ -142,6 +162,7 @@ public class QuedadaResource extends BaseResource {
         if (q.getInicio() == null) {
             throw new IllegalArgumentException("inicio is required");
         }
+        Convocatorias.validar(q);
         if ("carrera".equals(q.getModalidad()) && !"circuito".equals(q.getTipo())) {
             throw new IllegalArgumentException("A race is held on a circuit");
         }
@@ -170,6 +191,14 @@ public class QuedadaResource extends BaseResource {
 
     @GET
     public List<Quedada> get() throws StorageException {
+        List<Quedada> todas = new ArrayList<>();
+        for (Quedada quedada : lista()) {
+            todas.add(paraElQueMira(quedada));
+        }
+        return todas;
+    }
+
+    private List<Quedada> lista() throws StorageException {
         if (esAdmin()) {
             return storage.getObjects(Quedada.class, new Request(new Columns.All()));
         }
@@ -190,7 +219,7 @@ public class QuedadaResource extends BaseResource {
     @Path("{id}")
     @GET
     public Quedada getSingle(@PathParam("id") long id) throws StorageException {
-        return visible(id);
+        return paraElQueMira(visible(id));
     }
 
     @POST
@@ -198,6 +227,9 @@ public class QuedadaResource extends BaseResource {
         permissionsService.checkEdit(getUserId(), entity, true, false);
         // The owner comes from the session, never from the body.
         entity.setCreadorId(getUserId());
+        // The public link is made on purpose (POST .../convocatoria), never
+        // smuggled in with the body.
+        entity.setConvocatoria(null);
         if (entity.getEstado() == null) {
             entity.setEstado("prevista");
         }
@@ -213,6 +245,9 @@ public class QuedadaResource extends BaseResource {
         noTerminada(actual);
         entity.setId(id);
         entity.setCreadorId(actual.getCreadorId());
+        // Neither renewed nor removed by a plain save: a stale copy of the ride
+        // in the browser would otherwise kill the link sent to the group.
+        entity.setConvocatoria(actual.getConvocatoria());
         if (entity.getEstado() == null) {
             entity.setEstado(actual.getEstado());
         }
@@ -244,6 +279,45 @@ public class QuedadaResource extends BaseResource {
         propia(id);
         storage.removeObject(Quedada.class, new Request(new Condition.Equals("id", id)));
         return Response.noContent().build();
+    }
+
+    /**
+     * Makes (or renews) the public link of a ride. The old code stops working:
+     * that is how a leaked link is withdrawn.
+     */
+    @Path("{id}/convocatoria")
+    @POST
+    public Map<String, String> convocar(@PathParam("id") long id) throws StorageException {
+        Quedada quedada = propia(id);
+        noTerminada(quedada);
+        quedada.setConvocatoria(convocatorias.nuevoCodigo());
+        storage.updateObject(quedada, new Request(
+                new Columns.Include("convocatoria"), new Condition.Equals("id", id)));
+        return Map.of("codigo", quedada.getConvocatoria());
+    }
+
+    @Path("{id}/convocatoria")
+    @DELETE
+    public Response desconvocar(@PathParam("id") long id) throws StorageException {
+        Quedada quedada = propia(id);
+        quedada.setConvocatoria(null);
+        storage.updateObject(quedada, new Request(
+                new Columns.Include("convocatoria"), new Condition.Equals("id", id)));
+        return Response.noContent().build();
+    }
+
+    /** "I need to stop" (improvement 112), from a rider of the running ride. */
+    @Path("{id}/parada")
+    @POST
+    public Map<String, Integer> parada(@PathParam("id") long id) throws StorageException {
+        Quedada quedada = visible(id);
+        try {
+            return Map.of("avisados", convocatorias.parada(getUserId(), quedada, permiso));
+        } catch (Convocatorias.DemasiadoPronto e) {
+            throw new WebApplicationException(e.getMessage(), Response.Status.TOO_MANY_REQUESTS);
+        } catch (SecurityException e) {
+            throw new WebApplicationException(e.getMessage(), Response.Status.FORBIDDEN);
+        }
     }
 
     @Path("{id}/participantes")
