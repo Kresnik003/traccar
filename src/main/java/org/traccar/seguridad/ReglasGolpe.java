@@ -54,6 +54,7 @@ public final class ReglasGolpe {
 
     private static final double MARCHA_KNOTS = UnitsConverter.knotsFromKph(5);
     private static final double MOVIMIENTO_KNOTS = UnitsConverter.knotsFromKph(10);
+    private static final double SIN_CONTACTO_KNOTS = UnitsConverter.knotsFromKph(20);
 
     private ReglasGolpe() {
     }
@@ -72,9 +73,10 @@ public final class ReglasGolpe {
     }
 
     /**
-     * Whether the rider rode on after the crash: two positions with a fix, the
-     * ignition on and above 10 km/h, at least 15 s apart, once the crash itself
-     * is over (30 s) and leaving out the crash trace records.
+     * Whether the rider rode on after the crash: two riding positions with a fix,
+     * at least 15 s apart, once the crash itself is over (30 s) and leaving out
+     * the crash trace records. Riding is the ignition on and above 10 km/h, or
+     * above 20 km/h without it.
      *
      * Found in review on 2026-09-29: the first version cancelled on ONE later
      * position faster than 10 km/h or 50 m away from the crash frame. The slide
@@ -82,6 +84,12 @@ public final class ReglasGolpe {
      * fix carries 0,0 or an old place, so the bike lying where it really lies
      * looked "far away": the guard cancelled itself in exactly the crash where
      * nobody can press the button. Distance no longer counts; riding does.
+     *
+     * Found in review on 2026-09-30: arming takes the ignition OR the speed, and
+     * cancelling asked for the ignition AND the speed. A device that reports the
+     * ignition off while moving (the FMT100 of the car guesses it from the
+     * voltage) could never cancel: the driver rode on and the contacts were
+     * warned anyway. Above 20 km/h for 15 s the ignition is not needed.
      */
     public static boolean seHaMovido(Date golpe, List<Position> despues) {
         long desde = golpe.getTime() + ASENTAMIENTO;
@@ -89,11 +97,16 @@ public final class ReglasGolpe {
                 .filter(p -> p.getDeviceTime() != null && p.getDeviceTime().getTime() >= desde)
                 .filter(p -> !p.hasAttribute(TRAZA))
                 .filter(Fijacion::tiene)
-                .filter(p -> p.getBoolean(Position.KEY_IGNITION) && p.getSpeed() > MOVIMIENTO_KNOTS)
+                .filter(ReglasGolpe::rodando)
                 .map(p -> p.getDeviceTime().getTime())
                 .sorted()
                 .toList();
         return !enMarcha.isEmpty() && enMarcha.get(enMarcha.size() - 1) - enMarcha.get(0) >= SEPARACION;
+    }
+
+    static boolean rodando(Position position) {
+        return position.getBoolean(Position.KEY_IGNITION) && position.getSpeed() > MOVIMIENTO_KNOTS
+                || position.getSpeed() > SIN_CONTACTO_KNOTS;
     }
 
     /**
@@ -110,6 +123,20 @@ public final class ReglasGolpe {
             return ultima;
         }
         return golpe != null && Fijacion.tiene(golpe) ? Optional.of(golpe) : Optional.empty();
+    }
+
+    /**
+     * The last position with a fix up to the crash, for when neither the crash
+     * frame nor anything after it has one: a bike that lost the fix in a tunnel
+     * and fell. The message says it is the last place known before the crash.
+     * Found in review on 2026-09-30: this was thrown away, and the contact read
+     * "a place the GPS has not fixed yet" when the street was known.
+     */
+    public static Optional<Position> ultimaAntes(List<Position> posiciones, Date golpe) {
+        return posiciones.stream()
+                .filter(Fijacion::tiene)
+                .filter(p -> p.getDeviceTime() != null && !p.getDeviceTime().after(golpe))
+                .max(Comparator.comparing(Position::getDeviceTime));
     }
 
     /**

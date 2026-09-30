@@ -41,10 +41,15 @@ import org.traccar.telegram.RespuestaTelegram;
 
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
@@ -59,16 +64,27 @@ import java.util.concurrent.atomic.AtomicLong;
  * throws, and it never waits on Telegram - every message leaves through an
  * executor (found in review on 2026-09-29: a slow Telegram held every device).
  * The two minutes are counted by TaskGuardias, which reads the guards from the
- * database, so a restart does not lose one. Nothing is armed while the bot's
- * inbox is off: nobody could press the button.
+ * database, so a restart does not lose one; and a warning going out is kept
+ * there too (AVISANDO), so a restart does not lose the recipients still
+ * waiting for it. Nothing is armed while the bot's inbox is off: nobody could
+ * press the button.
  */
 @Singleton
 public class GuardianGolpes implements ReceptorBoton {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GuardianGolpes.class);
 
-    /** Retries of a message that did not go out: 30 s, 2 min, 10 min. */
+    /** Retries of a warning that did not go out: 30 s, 2 min, 10 min. */
     static final long[] ESPERAS_REINTENTO = {30_000, 120_000, 600_000};
+
+    /**
+     * Retries of the question to the rider. They have to fit in the two minutes:
+     * a question that never arrives means the family is told about somebody who
+     * is fine (found in review on 2026-09-30: it was sent once, and a 429 or a
+     * slow Telegram left the rider without the button). The countdown looks
+     * every 10 s, so these are at the next pass after each wait.
+     */
+    static final long[] ESPERAS_PREGUNTA = {5_000, 15_000, 30_000};
 
     /** How long the link sent after a crash lets people follow the bike. */
     static final long DURACION_ENLACE = 24 * 3_600_000L;
@@ -91,7 +107,30 @@ public class GuardianGolpes implements ReceptorBoton {
      */
     static final long VENCIDA = 60_000;
 
-    private record Pendiente(String chatId, String texto, Long contactoId, int intento, long cuando) {
+    /**
+     * A warning still going out this long after its limit is stuck: the retries
+     * take 12.5 minutes, and whoever is still missing it has not been told.
+     */
+    static final long ATASCADA = 15 * 60_000L;
+
+    /**
+     * The overdue count is the one of the last pass. Older than this, it is not
+     * published at all: the countdown has stopped, and a stale zero would say
+     * all is well (CuentaAtrasParada says the rest).
+     */
+    static final long FRESCURA = 60_000;
+
+    private record Pendiente(
+            long guardiaId, String chatId, String texto, List<ClienteTelegram.Boton> botones,
+            Long contactoId, int intento, long cuando, boolean pregunta) {
+
+        Pendiente otraVez(long ahora, long[] esperas) {
+            return new Pendiente(guardiaId, chatId, texto, botones, contactoId, intento + 1,
+                    ahora + esperas[intento], pregunta);
+        }
+    }
+
+    private record Recuento(int vencidas, long cuando) {
     }
 
     private final boolean activo;
@@ -102,8 +141,12 @@ public class GuardianGolpes implements ReceptorBoton {
     private final FirmaBoton firma;
     private final Executor envios;
     private final List<Pendiente> pendientes = new ArrayList<>();
+    /** Warnings going out from this process: guard → chats not served yet. Guarded by this. */
+    private final Map<Long, Set<String>> enCurso = new HashMap<>();
     private final AtomicLong avisosPerdidos = new AtomicLong();
+    private final AtomicLong preguntasFallidas = new AtomicLong();
     private volatile long ultimaRevision;
+    private volatile Recuento recuento;
 
     @Inject
     public GuardianGolpes(
@@ -144,24 +187,28 @@ public class GuardianGolpes implements ReceptorBoton {
         return avisosPerdidos.get();
     }
 
+    /** Questions to the rider that never reached them, retries included (VigiaSeguridad). */
+    public long preguntasFallidas() {
+        return preguntasFallidas.get();
+    }
+
     /**
-     * Guards past their limit by more than {@link #VENCIDA} with nobody warned,
-     * for VigiaSeguridad. Empty, never zero, when the database does not answer:
-     * a zero there would tell the watchdog all is well.
+     * Guards the countdown missed, as counted by its last pass: waiting more than
+     * {@link #VENCIDA} past their limit, or still warning more than
+     * {@link #ATASCADA} past it. For VigiaSeguridad.
+     *
+     * It does not ask the database. Found in review on 2026-09-30: counting them
+     * in every scrape made /api/metrics wait on the database, so with MySQL hung
+     * the whole scrape failed and the alerts meant for "server alive, database
+     * down" could never fire. Empty, never zero, before the first pass or when
+     * the last one is old: a zero there would tell the watchdog all is well.
      */
     public OptionalInt vencidas(long ahora) {
-        try {
-            return OptionalInt.of((int) storage.getObjects(Guardia.class, new Request(
-                    new Columns.All(), new Condition.Equals("estado", Guardia.ESPERANDO))).stream()
-                    .filter(guardia -> Guardia.ESPERANDO.equals(guardia.getEstado()))
-                    // One without a limit can never be reviewed: exactly what must be seen.
-                    .filter(guardia -> guardia.getLimite() == null
-                            || guardia.getLimite().getTime() < ahora - VENCIDA)
-                    .count());
-        } catch (StorageException e) {
-            LOGGER.warn("Overdue crash guards could not be counted", e);
+        Recuento ultimo = recuento;
+        if (ultimo == null || ahora - ultimo.cuando() > FRESCURA) {
             return OptionalInt.empty();
         }
+        return OptionalInt.of(ultimo.vencidas());
     }
 
     public void alEvento(Event event, Position position) {
@@ -205,10 +252,11 @@ public class GuardianGolpes implements ReceptorBoton {
             guardia.setId(storage.addObject(guardia, new Request(new Columns.Exclude("id"))));
             Optional<String> chat = destinatarios.chatDelMotorista(deviceId);
             if (chat.isPresent()) {
-                String texto = Mensajes.alDuenoTrasGolpe(moto(deviceId));
                 List<ClienteTelegram.Boton> boton = List.of(
                         new ClienteTelegram.Boton("Estoy bien", firma.firmar(accion(), guardia.getId())));
-                envios.execute(() -> cliente.enviar(chat.get(), texto, boton));
+                Pendiente pregunta = new Pendiente(guardia.getId(), chat.get(),
+                        Mensajes.alDuenoTrasGolpe(moto(deviceId)), boton, null, 0, ahora, true);
+                envios.execute(() -> enviar(pregunta, ahora));
             }
         } catch (Exception e) {
             LOGGER.warn("Crash guard failed for device {}", event.getDeviceId(), e);
@@ -242,7 +290,7 @@ public class GuardianGolpes implements ReceptorBoton {
             if (!chatId.equals(destinatarios.chatDelMotorista(guardia.getDeviceId()).orElse(null))) {
                 return "Este botón no es tuyo.";
             }
-            if (Guardia.AVISADA.equals(guardia.getEstado())) {
+            if (Guardia.AVISADA.equals(guardia.getEstado()) || Guardia.AVISANDO.equals(guardia.getEstado())) {
                 return "Tus contactos ya han sido avisados. Diles tú que estás bien.";
             }
             if (!Guardia.ESPERANDO.equals(guardia.getEstado())) {
@@ -263,14 +311,22 @@ public class GuardianGolpes implements ReceptorBoton {
             return;
         }
         try {
-            for (Guardia guardia : storage.getObjects(Guardia.class, new Request(
-                    new Columns.All(), new Condition.Equals("estado", Guardia.ESPERANDO)))) {
+            int vencidas = 0;
+            for (Guardia guardia : storage.getObjects(Guardia.class, new Request(new Columns.All(),
+                    new Condition.Or(
+                            new Condition.Equals("estado", Guardia.ESPERANDO),
+                            new Condition.Equals("estado", Guardia.AVISANDO))))) {
+                Guardia tras = guardia;
                 try {
-                    revisar(guardia.getId(), ahora);
+                    tras = revisar(guardia.getId(), ahora);
                 } catch (Exception e) {
                     LOGGER.warn("Crash guard {} failed", guardia.getId(), e);
                 }
+                if (tras != null && vencida(tras, ahora)) {
+                    vencidas++;
+                }
             }
+            recuento = new Recuento(vencidas, ahora);
             ultimaRevision = ahora;
         } catch (StorageException e) {
             LOGGER.warn("Crash guards could not be read", e);
@@ -278,57 +334,139 @@ public class GuardianGolpes implements ReceptorBoton {
         reintentar(ahora);
     }
 
-    private synchronized void revisar(long id, long ahora) throws StorageException {
-        Guardia guardia = leer(id);
-        if (guardia == null || !Guardia.ESPERANDO.equals(guardia.getEstado())) {
-            return;
+    /** Missed by the countdown, as it stands after this pass looked at it. */
+    private static boolean vencida(Guardia guardia, long ahora) {
+        // One without a limit can never be reviewed: exactly what must be seen.
+        if (Guardia.ESPERANDO.equals(guardia.getEstado())) {
+            return guardia.getLimite() == null || guardia.getLimite().getTime() < ahora - VENCIDA;
         }
-        List<Position> despues = posiciones(guardia.getDeviceId(),
-                new Date(guardia.getGolpe().getTime() - MARGEN_FIJACION), new Date(ahora)).stream()
-                .filter(p -> p.getDeviceTime() != null && p.getDeviceTime().after(guardia.getGolpe()))
-                .toList();
-        if (ReglasGolpe.seHaMovido(guardia.getGolpe(), despues)) {
+        if (Guardia.AVISANDO.equals(guardia.getEstado())) {
+            return guardia.getLimite() == null || guardia.getLimite().getTime() < ahora - ATASCADA;
+        }
+        return false;
+    }
+
+    /** One guard, read again under the lock; returns it as it is left. */
+    private synchronized Guardia revisar(long id, long ahora) throws StorageException {
+        Guardia guardia = leer(id);
+        if (guardia == null) {
+            return null;
+        }
+        if (Guardia.AVISANDO.equals(guardia.getEstado())) {
+            // Going out from this process already, or left half sent by a restart.
+            if (!enCurso.containsKey(id)) {
+                enviarA(guardia, mensajes(guardia, posiciones(guardia, ahora),
+                        destinatarios.de(guardia.getDeviceId())), ahora);
+            }
+            return guardia;
+        }
+        if (!Guardia.ESPERANDO.equals(guardia.getEstado())) {
+            return guardia;
+        }
+        List<Position> todas = posiciones(guardia, ahora);
+        if (ReglasGolpe.seHaMovido(guardia.getGolpe(), despues(guardia, todas))) {
             guardia.setEstado(Guardia.CANCELADA_MOVIMIENTO);
             actualizar(guardia);
         } else if (ahora >= guardia.getLimite().getTime()) {
-            avisar(guardia, despues, ahora);
+            avisar(guardia, todas, ahora);
         }
+        return guardia;
     }
 
     /**
      * Whom to warn and what to say is worked out FIRST, then the guard is marked
-     * as warned, then the messages go out. Found in review: marking it first and
+     * as warning, then the messages go out. Found in review: marking it first and
      * failing to read the recipients left a guard "warned" that warned nobody.
-     * Marking it before sending still keeps a restart from warning twice.
+     *
+     * Found in review on 2026-09-30: it was marked AVISADA before sending, and
+     * the retries lived only in memory, so a restart during them lost the
+     * warning and nothing counted it. Now it stays AVISANDO, with the chats
+     * already served, until every recipient is: a restart sends the rest.
      */
-    private void avisar(Guardia guardia, List<Position> despues, long ahora) throws StorageException {
+    private void avisar(Guardia guardia, List<Position> todas, long ahora) throws StorageException {
+        List<Destinatarios.Destinatario> a = destinatarios.de(guardia.getDeviceId());
+        var enlace = enlaces.enlaceDeEquipo(guardia.getDeviceId(),
+                new Date(guardia.getGolpe().getTime() + DURACION_ENLACE), "golpe", guardia.getId());
+        guardia.setEnlace(enlace.map(EnlacesDirectos.Enlace::url).orElse(null));
+        Map<String, Pendiente> mensajes = mensajes(guardia, todas, a);
+        guardia.setEstado(Guardia.AVISANDO);
+        guardia.setResueltos(",");
+        actualizar(guardia);
+        enviarA(guardia, mensajes, ahora);
+    }
+
+    /** The warning for each recipient of the guard, by chat. */
+    private Map<String, Pendiente> mensajes(
+            Guardia guardia, List<Position> todas, List<Destinatarios.Destinatario> a) throws StorageException {
         long deviceId = guardia.getDeviceId();
-        List<Destinatarios.Destinatario> a = destinatarios.de(deviceId);
         String persona = destinatarios.persona(deviceId);
         String moto = moto(deviceId);
         Position delGolpe = storage.getObject(Position.class, new Request(
                 new Columns.All(), new Condition.Equals("id", guardia.getPositionId())));
-        String lugar = ReglasGolpe.dondeEsta(delGolpe, despues)
+        String lugar = ReglasGolpe.dondeEsta(delGolpe, despues(guardia, todas))
                 .map(p -> Mensajes.lugar(p.getAddress(), p.getLatitude(), p.getLongitude()))
-                .orElse(Mensajes.lugarDesconocido());
-        var enlace = enlaces.enlaceDeEquipo(
-                deviceId, new Date(guardia.getGolpe().getTime() + DURACION_ENLACE), "golpe", guardia.getId());
-        guardia.setEstado(Guardia.AVISADA);
-        guardia.setEnlace(enlace.map(EnlacesDirectos.Enlace::url).orElse(null));
-        actualizar(guardia);
+                .or(() -> ReglasGolpe.ultimaAntes(todas, guardia.getGolpe())
+                        .map(p -> Mensajes.lugarAntesDelGolpe(p.getAddress(), p.getLatitude(), p.getLongitude())))
+                .orElse(Mensajes.lugarDesconocido(guardia.getEnlace() != null));
+        Map<String, Pendiente> mensajes = new LinkedHashMap<>();
         for (Destinatarios.Destinatario destinatario : a) {
             String texto = destinatario.quedada() == null
                     ? Mensajes.aContacto(persona, moto, guardia.getGolpe(), lugar, guardia.getEnlace())
                     : Mensajes.aCompanero(destinatario.quedada(), persona, moto, guardia.getGolpe(), lugar,
                             guardia.getEnlace());
-            Pendiente pendiente = new Pendiente(destinatario.chatId(), texto, destinatario.contactoId(), 0, ahora);
+            mensajes.putIfAbsent(destinatario.chatId(), new Pendiente(guardia.getId(), destinatario.chatId(),
+                    texto, List.of(), destinatario.contactoId(), 0, 0, false));
+        }
+        return mensajes;
+    }
+
+    /** Sends the warning to every recipient not served yet; with none left, it is warned. */
+    private void enviarA(Guardia guardia, Map<String, Pendiente> mensajes, long ahora) throws StorageException {
+        Set<String> faltan = new LinkedHashSet<>();
+        for (String chat : mensajes.keySet()) {
+            if (!resuelto(guardia, chat)) {
+                faltan.add(chat);
+            }
+        }
+        if (faltan.isEmpty()) {
+            guardia.setEstado(Guardia.AVISADA);
+            actualizar(guardia);
+            return;
+        }
+        enCurso.put(guardia.getId(), faltan);
+        for (String chat : List.copyOf(faltan)) {
+            Pendiente pendiente = mensajes.get(chat);
             envios.execute(() -> enviar(pendiente, ahora));
         }
     }
 
+    private static boolean resuelto(Guardia guardia, String chat) {
+        return guardia.getResueltos() != null && guardia.getResueltos().contains("," + chat + ",");
+    }
+
     private void enviar(Pendiente pendiente, long ahora) {
-        RespuestaTelegram respuesta = cliente.enviar(pendiente.chatId(), pendiente.texto(), List.of());
+        RespuestaTelegram respuesta;
+        try {
+            respuesta = cliente.enviar(pendiente.chatId(), pendiente.texto(), pendiente.botones());
+        } catch (RuntimeException e) {
+            respuesta = new RespuestaTelegram(0, e.getMessage());
+        }
         if (respuesta.ok()) {
+            resolver(pendiente);
+            return;
+        }
+        long[] esperas = pendiente.pregunta() ? ESPERAS_PREGUNTA : ESPERAS_REINTENTO;
+        if (!respuesta.rechazado() && pendiente.intento() < esperas.length) {
+            synchronized (pendientes) {
+                pendientes.add(pendiente.otraVez(ahora, esperas));
+            }
+            return;
+        }
+        if (pendiente.pregunta()) {
+            // The rider did not get the button: the warning still goes out at the limit.
+            preguntasFallidas.incrementAndGet();
+            LOGGER.warn("The crash question of guard {} did not reach the rider: {}",
+                    pendiente.guardiaId(), respuesta.estado());
             return;
         }
         if (respuesta.rechazado()) {
@@ -339,16 +477,40 @@ public class GuardianGolpes implements ReceptorBoton {
                     LOGGER.warn("Contact {} could not be marked as refused", pendiente.contactoId(), e);
                 }
             }
-            return;
-        }
-        if (pendiente.intento() < ESPERAS_REINTENTO.length) {
-            synchronized (pendientes) {
-                pendientes.add(new Pendiente(pendiente.chatId(), pendiente.texto(), pendiente.contactoId(),
-                        pendiente.intento() + 1, ahora + ESPERAS_REINTENTO[pendiente.intento()]));
-            }
         } else {
             avisosPerdidos.incrementAndGet();
             LOGGER.warn("A safety message was given up after {} retries", ESPERAS_REINTENTO.length);
+        }
+        resolver(pendiente);
+    }
+
+    /** One recipient served: noted in the guard, which is warned when none is left. */
+    private synchronized void resolver(Pendiente pendiente) {
+        if (pendiente.pregunta()) {
+            return;
+        }
+        Set<String> faltan = enCurso.get(pendiente.guardiaId());
+        if (faltan != null) {
+            faltan.remove(pendiente.chatId());
+        }
+        try {
+            Guardia guardia = leer(pendiente.guardiaId());
+            if (guardia == null) {
+                enCurso.remove(pendiente.guardiaId());
+                return;
+            }
+            String resueltos = guardia.getResueltos() != null ? guardia.getResueltos() : ",";
+            if (!resuelto(guardia, pendiente.chatId())) {
+                guardia.setResueltos(resueltos + pendiente.chatId() + ",");
+            }
+            if (faltan == null || faltan.isEmpty()) {
+                guardia.setEstado(Guardia.AVISADA);
+                enCurso.remove(pendiente.guardiaId());
+            }
+            actualizar(guardia);
+        } catch (StorageException e) {
+            // Left AVISANDO: after a restart this recipient gets it again, never zero times.
+            LOGGER.warn("Crash guard {} could not note a sent warning", pendiente.guardiaId(), e);
         }
     }
 
@@ -364,6 +526,18 @@ public class GuardianGolpes implements ReceptorBoton {
             }
         }
         vencidos.forEach(pendiente -> envios.execute(() -> enviar(pendiente, ahora)));
+    }
+
+    /** The positions around a guard: from before the crash (margin) until now. */
+    private List<Position> posiciones(Guardia guardia, long ahora) throws StorageException {
+        return posiciones(guardia.getDeviceId(),
+                new Date(guardia.getGolpe().getTime() - MARGEN_FIJACION), new Date(ahora));
+    }
+
+    private static List<Position> despues(Guardia guardia, List<Position> todas) {
+        return todas.stream()
+                .filter(p -> p.getDeviceTime() != null && p.getDeviceTime().after(guardia.getGolpe()))
+                .toList();
     }
 
     /** Positions of a device by fix time (indexed), device time decided by the caller. */
@@ -383,7 +557,7 @@ public class GuardianGolpes implements ReceptorBoton {
 
     private void actualizar(Guardia guardia) throws StorageException {
         storage.updateObject(guardia, new Request(
-                new Columns.Include("estado", "enlace"), new Condition.Equals("id", guardia.getId())));
+                new Columns.Include("estado", "enlace", "resueltos"), new Condition.Equals("id", guardia.getId())));
     }
 
     private String moto(long deviceId) throws StorageException {

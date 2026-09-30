@@ -6,6 +6,7 @@ import org.traccar.model.Position;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -81,11 +82,30 @@ public class ReglasGolpeTest {
     }
 
     @Test
-    public void withoutIgnitionOrWithoutAFixItIsNotRiding() {
+    public void withoutIgnitionSlowOrWithoutAFixItIsNotRiding() {
         assertFalse(ReglasGolpe.seHaMovido(new Date(T), List.of(
-                despues(40_000, false, 30, true), despues(60_000, false, 30, true))));
+                despues(40_000, false, 19, true), despues(60_000, false, 19, true))));
+        assertFalse(ReglasGolpe.seHaMovido(new Date(T), List.of(
+                despues(40_000, false, 20, true), despues(60_000, false, 20, true))));
         assertFalse(ReglasGolpe.seHaMovido(new Date(T), List.of(
                 despues(40_000, true, 30, false), despues(60_000, true, 30, false))));
+    }
+
+    @Test
+    public void aDeviceThatReportsTheIgnitionOffWhileMovingStillRidesOn() {
+        // Found in review on 2026-09-30: arming took the ignition OR the speed and
+        // cancelling the ignition AND the speed. The FMT100 of the car guesses the
+        // ignition from the voltage and says false while driving: the driver drove
+        // on and the contacts were warned anyway.
+        assertTrue(ReglasGolpe.seHaMovido(new Date(T), List.of(
+                despues(40_000, false, 21, true), despues(60_000, false, 50, true))));
+        assertTrue(ReglasGolpe.seHaMovido(new Date(T), List.of(
+                despues(40_000, true, 11, true), despues(55_000, false, 21, true))));
+        // Still two of them, 15 s apart, after the crash itself.
+        assertFalse(ReglasGolpe.seHaMovido(new Date(T), List.of(
+                despues(40_000, false, 80, true), despues(54_999, false, 80, true))));
+        assertFalse(ReglasGolpe.seHaMovido(new Date(T), List.of(
+                despues(1_000, false, 80, true), despues(20_000, false, 80, true))));
     }
 
     @Test
@@ -200,6 +220,20 @@ public class ReglasGolpeTest {
     public void exactlyFiveMinutesLateIsStillRecent() {
         assertTrue(ReglasGolpe.reciente(new Date(T - ReglasGolpe.ANTIGUEDAD_MAXIMA), T));
         assertFalse(ReglasGolpe.reciente(new Date(T - ReglasGolpe.ANTIGUEDAD_MAXIMA - 1), T));
+    }
+
+    @Test
+    public void theLastFixBeforeTheCrashIsTheNewestOneUpToIt() {
+        Position lejos = pos(90_000, true, 50, 43.0, -8, true);
+        Position cerca = pos(20_000, true, 50, 43.1, -8, true);
+        Position sinFijacion = pos(10_000, true, 50, 43.2, -8, false);
+        Position enElGolpe = pos(0, false, 0, 43.3, -8, true);
+        Position despuesDelGolpe = pos(-40_000, false, 0, 43.4, -8, true);
+        assertEquals(Optional.of(enElGolpe), ReglasGolpe.ultimaAntes(
+                List.of(despuesDelGolpe, lejos, enElGolpe, sinFijacion, cerca), new Date(T)));
+        assertEquals(Optional.of(cerca), ReglasGolpe.ultimaAntes(
+                List.of(despuesDelGolpe, lejos, sinFijacion, cerca), new Date(T)));
+        assertEquals(Optional.empty(), ReglasGolpe.ultimaAntes(List.of(despuesDelGolpe, sinFijacion), new Date(T)));
     }
 
 }

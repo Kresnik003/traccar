@@ -58,14 +58,19 @@ public class VigiaSeguridad {
             metrica(out, "nordes_guardias_revision_segundos", "gauge",
                     "Seconds since the crash countdown last read its guards; it looks every 10 s.",
                     segundos(ahora, guardian.ultimaRevision()));
-            // Left out, not zero, when the database does not answer: a zero would say all is well.
+            // Left out, not zero, when the last pass is missing or old: a zero would say all is
+            // well. Counted by the countdown itself: this page never waits on the database.
             OptionalInt vencidas = guardian.vencidas(ahora);
             if (vencidas.isPresent()) {
                 metrica(out, "nordes_guardias_vencidas", "gauge",
-                        "Crash guards a minute past their limit with nobody warned.", vencidas.getAsInt());
+                        "Crash guards the countdown missed: waiting a minute past their limit, or still "
+                                + "warning 15 minutes past it.", vencidas.getAsInt());
             }
             metrica(out, "nordes_avisos_perdidos_total", "counter",
                     "Crash warnings given up after every retry.", guardian.avisosPerdidos());
+            metrica(out, "nordes_preguntas_fallidas_total", "counter",
+                    "Crash questions to the rider that never reached them, retries included.",
+                    guardian.preguntasFallidas());
         }
         if (buzon.activo()) {
             metrica(out, "nordes_buzon_sin_leer_segundos", "gauge",

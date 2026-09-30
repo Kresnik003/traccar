@@ -246,9 +246,8 @@ public class GuardianGolpesTest {
         guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
         verify(cliente).enviar(eq("901"), contains("https://n.es/?token=t"), anyList());
         verify(cliente).enviar(eq("905"), contains("Compañero de la quedada «Ruta del Eume»"), anyList());
-        ArgumentCaptor<Guardia> captor = ArgumentCaptor.forClass(Guardia.class);
-        verify(storage).updateObject(captor.capture(), any());
-        assertEquals(Guardia.AVISADA, captor.getValue().getEstado());
+        assertEquals(Guardia.AVISADA, abiertas.get(0).getEstado());
+        assertEquals(",901,905,", abiertas.get(0).getResueltos());
         verify(enlaces).enlaceDeEquipo(eq(8L), eq(new Date(T + 24 * 3_600_000L)), eq("golpe"), eq(7L));
     }
 
@@ -569,18 +568,65 @@ public class GuardianGolpesTest {
     }
 
     @Test
-    public void aFixBeforeTheCrashIsNotWhereTheBikeLies() throws Exception {
+    public void aFixBeforeTheCrashIsGivenAsTheLastPlaceKnownBeforeIt() throws Exception {
+        // Found in review on 2026-09-30: with no fix in the crash frame nor after it,
+        // the last fix before it was thrown away and the contact read "a place the
+        // GPS has not fixed yet" when the street was known. It is given, and it
+        // says what it is: never passed off as where the bike lies now.
+        abiertas.add(guardia(T));
+        Position golpe = pos(T, false, 0, 0);
+        golpe.setLongitude(0);
+        golpe.setValid(false);
+        when(storage.getObject(eq(Position.class), any())).thenReturn(golpe);
+        posteriores.add(pos(T - 90_000, true, 50, 43.0));
+        posteriores.add(pos(T - 60_000, true, 50, 43.1));
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        ArgumentCaptor<String> texto = ArgumentCaptor.forClass(String.class);
+        verify(cliente).enviar(eq("901"), texto.capture(), anyList());
+        assertTrue(texto.getValue().contains("43.10000, -8.00000 (su última posición conocida antes del golpe)"),
+                texto.getValue());
+    }
+
+    @Test
+    public void aFixAfterTheCrashWinsOverTheOneBefore() throws Exception {
         abiertas.add(guardia(T));
         Position golpe = pos(T, false, 0, 0);
         golpe.setLongitude(0);
         golpe.setValid(false);
         when(storage.getObject(eq(Position.class), any())).thenReturn(golpe);
         posteriores.add(pos(T - 60_000, true, 50, 43.1));
+        posteriores.add(pos(T + 40_000, false, 0, 43.2));
         guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
         ArgumentCaptor<String> texto = ArgumentCaptor.forClass(String.class);
         verify(cliente).enviar(eq("901"), texto.capture(), anyList());
-        assertTrue(texto.getValue().contains(Mensajes.lugarDesconocido()), texto.getValue());
-        assertFalse(texto.getValue().contains("43.10000"), texto.getValue());
+        assertTrue(texto.getValue().contains("43.20000, -8.00000."), texto.getValue());
+        assertFalse(texto.getValue().contains("antes del golpe"), texto.getValue());
+    }
+
+    @Test
+    public void withNoFixAtAllAndNoLinkNoLiveMapIsPromised() throws Exception {
+        abiertas.add(guardia(T));
+        Position golpe = pos(T, false, 0, 0);
+        golpe.setLongitude(0);
+        golpe.setValid(false);
+        when(storage.getObject(eq(Position.class), any())).thenReturn(golpe);
+        when(enlaces.enlaceDeEquipo(anyLong(), any(), any(), anyLong())).thenReturn(Optional.empty());
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        ArgumentCaptor<String> texto = ArgumentCaptor.forClass(String.class);
+        verify(cliente).enviar(eq("901"), texto.capture(), anyList());
+        assertTrue(texto.getValue().contains(Mensajes.lugarDesconocido(false) + "."), texto.getValue());
+        assertFalse(texto.getValue().contains("directo"), texto.getValue());
+    }
+
+    @Test
+    public void withNoFixAtAllTheLinkIsPointedTo() throws Exception {
+        abiertas.add(guardia(T));
+        Position golpe = pos(T, false, 0, 0);
+        golpe.setLongitude(0);
+        golpe.setValid(false);
+        when(storage.getObject(eq(Position.class), any())).thenReturn(golpe);
+        guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
+        verify(cliente).enviar(eq("901"), contains(Mensajes.lugarDesconocido(true)), anyList());
     }
 
     @Test
@@ -719,25 +765,124 @@ public class GuardianGolpesTest {
     }
 
     @Test
-    public void aWaitingGuardPastItsLimitByOverAMinuteIsOverdue() throws Exception {
-        Guardia vencida = guardia(T - ReglasGolpe.ESPERA - 61_000);
-        Guardia justo = guardia(T - ReglasGolpe.ESPERA - 60_000);
-        Guardia enHora = guardia(T);
-        Guardia avisada = guardia(T - ReglasGolpe.ESPERA - 600_000);
-        avisada.setEstado(Guardia.AVISADA);
+    public void theOverdueCountIsTheOneOfTheLastPass() throws Exception {
+        // 30/9: counted by the countdown, never by the scrape (it asked the database).
+        Guardia rota = guardia(T - ReglasGolpe.ESPERA - 61_000);
+        abiertas.add(rota);
+        when(destinatarios.de(8)).thenThrow(new StorageException("caída"));
+        GuardianGolpes guardian = guardian();
+        assertTrue(guardian.vencidas(T).isEmpty(), "before the first pass it is unknown, not zero");
+        guardian.revisar(T);
+        assertEquals(OptionalInt.of(1), guardian.vencidas(T));
+        assertEquals(OptionalInt.of(1), guardian.vencidas(T + GuardianGolpes.FRESCURA));
+        assertTrue(guardian.vencidas(T + GuardianGolpes.FRESCURA + 1).isEmpty(), "an old count is not published");
+    }
+
+    @Test
+    public void aGuardWarnedInThisPassIsNotOverdue() throws Exception {
+        abiertas.add(guardia(T - ReglasGolpe.ESPERA - 600_000));
+        GuardianGolpes guardian = guardian();
+        guardian.revisar(T);
+        assertEquals(Guardia.AVISADA, abiertas.get(0).getEstado());
+        assertEquals(OptionalInt.of(0), guardian.vencidas(T));
+    }
+
+    @Test
+    public void theOverdueLimitsAreAMinuteWaitingAndFifteenWarning() throws Exception {
+        when(destinatarios.de(8)).thenThrow(new StorageException("caída"));
+        long[][] casos = {
+            {61_000, 1}, {60_000, 0}, {0, 0},
+        };
+        for (long[] caso : casos) {
+            abiertas.clear();
+            abiertas.add(guardia(T - ReglasGolpe.ESPERA - caso[0]));
+            GuardianGolpes guardian = guardian();
+            guardian.revisar(T);
+            assertEquals(OptionalInt.of((int) caso[1]), guardian.vencidas(T), "waiting " + caso[0]);
+        }
         Guardia sinLimite = guardia(T);
         sinLimite.setLimite(null);
-        abiertas.addAll(List.of(vencida, justo, enHora, avisada));
-        assertEquals(OptionalInt.of(1), guardian().vencidas(T));
-        // Una guardia sin límite no se puede revisar nunca: es justo lo que hay que ver.
+        sinLimite.setEstado(Guardia.AVISADA);
+        abiertas.clear();
         abiertas.add(sinLimite);
-        assertEquals(OptionalInt.of(2), guardian().vencidas(T));
+        GuardianGolpes guardian = guardian();
+        guardian.revisar(T);
+        assertEquals(OptionalInt.of(0), guardian.vencidas(T), "a warned guard is never overdue");
     }
 
     @Test
     public void withoutTheDatabaseTheOverdueCountIsUnknownNotZero() throws Exception {
+        GuardianGolpes guardian = guardian();
+        guardian.revisar(T);
         when(storage.getObjects(eq(Guardia.class), any())).thenThrow(new StorageException("caída"));
-        assertTrue(guardian().vencidas(T).isEmpty());
+        guardian.revisar(T + 70_000);
+        assertTrue(guardian.vencidas(T + 70_000).isEmpty());
+    }
+
+    // ---- The question to the rider (30/9) ------------------------------------------
+
+    @Test
+    public void theQuestionIsRetriedWithinTheTwoMinutes() throws Exception {
+        // Found in review on 2026-09-30: sent once, a 429 or a slow Telegram left the
+        // rider without the button, and the family was warned about somebody fine.
+        previas.add(pos(T - 30_000, true, 50, 43));
+        when(cliente.enviar(eq("900"), anyString(), anyList())).thenReturn(
+                new RespuestaTelegram(429, "too many"), new RespuestaTelegram(502, "bad gateway"),
+                new RespuestaTelegram(200, null));
+        GuardianGolpes guardian = guardian();
+        guardian.alEvento(accidente(), pos(T, false, 0, 43));
+        long ahora = System.currentTimeMillis();
+        guardian.revisar(ahora + 4_000);
+        verify(cliente, times(1)).enviar(eq("900"), anyString(), anyList());
+        guardian.revisar(ahora + 10_000);
+        verify(cliente, times(2)).enviar(eq("900"), anyString(), anyList());
+        guardian.revisar(ahora + 30_000);
+        verify(cliente, times(3)).enviar(eq("900"), contains("golpe en tu Ducati"), anyList());
+        guardian.revisar(ahora + 90_000);
+        verify(cliente, times(3)).enviar(eq("900"), anyString(), anyList());
+        assertEquals(0, guardian.preguntasFallidas());
+        assertTrue(ahora + 30_000 < T + ReglasGolpe.ESPERA + 30_000);
+    }
+
+    @Test
+    public void aQuestionThatNeverArrivesIsCountedAndTheWarningStillGoesOut() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        when(cliente.enviar(eq("900"), anyString(), anyList())).thenReturn(new RespuestaTelegram(0, "timeout"));
+        GuardianGolpes guardian = guardian();
+        guardian.alEvento(accidente(), pos(T, false, 0, 43));
+        long ahora = System.currentTimeMillis();
+        for (long t = ahora; t <= ahora + 100_000; t += 10_000) {
+            guardian.revisar(t);
+        }
+        verify(cliente, times(1 + GuardianGolpes.ESPERAS_PREGUNTA.length)).enviar(eq("900"), anyString(), anyList());
+        assertEquals(1, guardian.preguntasFallidas());
+        assertEquals(0, guardian.avisosPerdidos());
+    }
+
+    @Test
+    public void aRiderWhoBlockedTheBotIsCountedAtOnceAndNotRetried() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        when(cliente.enviar(eq("900"), anyString(), anyList())).thenReturn(new RespuestaTelegram(403, "blocked"));
+        GuardianGolpes guardian = guardian();
+        guardian.alEvento(accidente(), pos(T, false, 0, 43));
+        long ahora = System.currentTimeMillis();
+        guardian.revisar(ahora + 60_000);
+        verify(cliente, times(1)).enviar(eq("900"), anyString(), anyList());
+        assertEquals(1, guardian.preguntasFallidas());
+        verify(destinatarios, never()).rechazar(anyLong());
+    }
+
+    @Test
+    public void aTelegramClientThatThrowsIsAFailedSendNotALostThread() throws Exception {
+        previas.add(pos(T - 30_000, true, 50, 43));
+        when(cliente.enviar(eq("900"), anyString(), anyList()))
+                .thenThrow(new RuntimeException("read timed out"))
+                .thenReturn(new RespuestaTelegram(200, null));
+        GuardianGolpes guardian = guardian();
+        guardian.alEvento(accidente(), pos(T, false, 0, 43));
+        guardian.revisar(System.currentTimeMillis() + 10_000);
+        verify(cliente, times(2)).enviar(eq("900"), anyString(), anyList());
+        assertEquals(0, guardian.preguntasFallidas());
     }
 
 }
