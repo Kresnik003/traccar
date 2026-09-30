@@ -656,14 +656,14 @@ public class GuardianGolpesTest {
     }
 
     @Test
-    public void withoutTheDeviceTheBikeIsCalledMoto() throws Exception {
+    public void withoutTheDeviceItIsCalledVehiculo() throws Exception {
         when(storage.getObject(eq(Device.class), any())).thenReturn(null);
         previas.add(pos(T - 30_000, true, 50, 43));
         guardian().alEvento(accidente(), pos(T, false, 0, 43));
-        verify(cliente).enviar(eq("900"), contains("golpe en tu moto."), anyList());
+        verify(cliente).enviar(eq("900"), contains("golpe en tu vehículo."), anyList());
         abiertas.add(guardia(T));
         guardian().revisar(T + ReglasGolpe.ESPERA + 1_000);
-        verify(cliente).enviar(eq("901"), contains("con su moto,"), anyList());
+        verify(cliente).enviar(eq("901"), contains("con su vehículo,"), anyList());
     }
 
     // ---- Sending and retrying ---------------------------------------------------

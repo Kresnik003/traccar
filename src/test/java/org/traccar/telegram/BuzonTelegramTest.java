@@ -130,7 +130,7 @@ public class BuzonTelegramTest {
         when(destinatarios.motorista(8)).thenReturn(Optional.empty());
         when(storage.getObject(eq(Contacto.class), any())).thenReturn(pendiente("C0d"));
         procesar("[{\"update_id\":1,\"message\":{\"chat\":{\"id\":901},\"text\":\"/start C0d\"}}]");
-        verify(cliente).enviar(eq("901"), contains("contacto de emergencia de la moto Ducati"), anyList());
+        verify(cliente).enviar(eq("901"), contains("contacto de emergencia de «Ducati"), anyList());
         verify(cliente, never()).enviar(anyString(), contains("tu contacto"), anyList());
         verify(cliente).enviar(eq("901"), contains("/baja"), anyList());
     }
@@ -140,15 +140,15 @@ public class BuzonTelegramTest {
         when(destinatarios.motorista(8)).thenReturn(Optional.of(new User()));
         when(storage.getObject(eq(Contacto.class), any())).thenReturn(pendiente("C0d"));
         procesar("[{\"update_id\":1,\"message\":{\"chat\":{\"id\":901},\"text\":\"/start C0d\"}}]");
-        verify(cliente).enviar(eq("901"), contains("de la moto Ducati"), anyList());
+        verify(cliente).enviar(eq("901"), contains("de «Ducati"), anyList());
     }
 
     @Test
-    public void aBikeThatIsGoneIsCalledJustMoto() throws Exception {
+    public void aVehicleThatIsGoneIsCalledJustVehiculo() throws Exception {
         when(storage.getObject(eq(Contacto.class), any())).thenReturn(pendiente("C0d"));
         when(storage.getObject(eq(Device.class), any())).thenReturn(null);
         procesar("[{\"update_id\":1,\"message\":{\"chat\":{\"id\":901},\"text\":\"/start C0d\"}}]");
-        verify(cliente).enviar(eq("901"), contains("contacto de emergencia de Juan (moto)"), anyList());
+        verify(cliente).enviar(eq("901"), contains("contacto de emergencia de Juan (vehículo)"), anyList());
     }
 
     @Test

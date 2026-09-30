@@ -285,10 +285,10 @@ public class ViajesFamiliaTest {
     }
 
     @Test
-    public void aBikeThatIsGoneIsCalledMoto() throws Exception {
+    public void aVehicleThatIsGoneIsCalledVehiculo() throws Exception {
         when(storage.getObject(eq(Device.class), any())).thenReturn(null);
         salir(viajes());
-        verify(cliente).enviar(eq("901"), startsWith("Juan ha salido de Casa con su moto."), anyList());
+        verify(cliente).enviar(eq("901"), startsWith("Juan ha salido de Casa con su vehículo."), anyList());
     }
 
     @Test

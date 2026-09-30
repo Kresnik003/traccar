@@ -563,7 +563,7 @@ public class GuardianGolpes implements ReceptorBoton {
     private String moto(long deviceId) throws StorageException {
         Device device = storage.getObject(Device.class, new Request(
                 new Columns.All(), new Condition.Equals("id", deviceId)));
-        return device != null ? device.getName() : "moto";
+        return device != null ? device.getName() : "vehículo";
     }
 
 }
