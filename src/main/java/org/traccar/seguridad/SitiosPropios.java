@@ -15,8 +15,6 @@
  */
 package org.traccar.seguridad;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.traccar.model.Geofence;
 import org.traccar.model.User;
 import org.traccar.storage.Storage;
@@ -25,6 +23,8 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

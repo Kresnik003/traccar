@@ -35,12 +35,12 @@ import org.traccar.model.Position;
 import org.traccar.notification.ColaAvisos;
 import org.traccar.notification.NotificationGrouper;
 import org.traccar.notification.NotificatorManager;
+import org.traccar.seguridad.GuardianGolpes;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Request;
-import org.traccar.seguridad.GuardianGolpes;
 
 import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;

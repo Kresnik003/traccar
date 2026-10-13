@@ -15,10 +15,10 @@
  */
 package org.traccar.seguridad;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.traccar.telegram.BuzonTelegram;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.util.OptionalInt;
 import java.util.function.LongSupplier;
 

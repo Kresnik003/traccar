@@ -15,7 +15,8 @@
  */
 package org.traccar.schedule;
 
-import jakarta.inject.Inject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.model.AvisoPendiente;
@@ -32,9 +33,8 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Order;
 import org.traccar.storage.query.Request;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import jakarta.inject.Inject;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;

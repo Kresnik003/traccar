@@ -70,7 +70,7 @@ public class ConvocatoriasTest {
 
     private void sql(String... sentencias) throws Exception {
         try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
+                Statement statement = connection.createStatement()) {
             for (String sentencia : sentencias) {
                 statement.execute(sentencia);
             }
@@ -79,8 +79,8 @@ public class ConvocatoriasTest {
 
     private long contar(String consulta) throws Exception {
         try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement();
-             ResultSet rows = statement.executeQuery(consulta)) {
+                Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery(consulta)) {
             rows.next();
             return rows.getLong(1);
         }

@@ -150,7 +150,6 @@ public class Quedada extends BaseModel {
         this.entornohash = entornohash;
     }
 
-
     /*
      * The call to ride (improvement 116): what is sent over WhatsApp. The time
      * is `inicio`; the meeting point, if any, is salidalat/salidalon, and 0,0

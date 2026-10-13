@@ -15,11 +15,11 @@
  */
 package org.traccar.schedule;
 
-import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.seguridad.ViajesFamilia;
 
+import jakarta.inject.Inject;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 

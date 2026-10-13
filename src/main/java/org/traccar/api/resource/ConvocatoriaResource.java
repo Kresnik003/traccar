@@ -15,6 +15,11 @@
  */
 package org.traccar.api.resource;
 
+import org.traccar.api.BaseResource;
+import org.traccar.model.Device;
+import org.traccar.quedadas.Convocatorias;
+import org.traccar.storage.StorageException;
+
 import jakarta.annotation.security.PermitAll;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -26,11 +31,6 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.traccar.api.BaseResource;
-import org.traccar.model.Device;
-import org.traccar.quedadas.Convocatorias;
-import org.traccar.storage.StorageException;
-
 import java.util.Map;
 
 /**

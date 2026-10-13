@@ -19,6 +19,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.glassfish.jersey.client.ClientProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.traccar.config.Config;
+import org.traccar.config.Keys;
+
 import jakarta.inject.Inject;
 import jakarta.inject.Provider;
 import jakarta.inject.Singleton;
@@ -26,12 +32,6 @@ import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
-import org.glassfish.jersey.client.ClientProperties;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.traccar.config.Config;
-import org.traccar.config.Keys;
-
 import java.util.List;
 
 /**

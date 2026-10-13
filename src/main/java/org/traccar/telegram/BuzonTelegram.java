@@ -16,8 +16,6 @@
 package org.traccar.telegram;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.LifecycleObject;
@@ -37,6 +35,8 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;

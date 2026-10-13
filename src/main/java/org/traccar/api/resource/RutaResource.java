@@ -15,6 +15,14 @@
  */
 package org.traccar.api.resource;
 
+import org.traccar.api.BaseResource;
+import org.traccar.model.Ruta;
+import org.traccar.model.User;
+import org.traccar.storage.StorageException;
+import org.traccar.storage.query.Columns;
+import org.traccar.storage.query.Condition;
+import org.traccar.storage.query.Request;
+
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -26,14 +34,6 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.traccar.api.BaseResource;
-import org.traccar.model.Ruta;
-import org.traccar.model.User;
-import org.traccar.storage.StorageException;
-import org.traccar.storage.query.Columns;
-import org.traccar.storage.query.Condition;
-import org.traccar.storage.query.Request;
-
 import java.util.Date;
 import java.util.List;
 

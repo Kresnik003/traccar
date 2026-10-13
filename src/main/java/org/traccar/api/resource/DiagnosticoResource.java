@@ -15,12 +15,6 @@
  */
 package org.traccar.api.resource;
 
-import jakarta.inject.Inject;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.HttpHeaders;
-import jakarta.ws.rs.core.Response;
 import org.traccar.api.BaseResource;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
@@ -29,7 +23,12 @@ import org.traccar.model.Server;
 import org.traccar.session.FleetMetrics;
 import org.traccar.storage.StorageException;
 
-import javax.sql.DataSource;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.Response;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -45,6 +44,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.TimeZone;
+import javax.sql.DataSource;
 
 /**
  * What a club sends when something fails, in one text file (improvement 67).
@@ -187,8 +187,8 @@ public class DiagnosticoResource extends BaseResource {
     private List<String> query(String sql, int columns) {
         List<String> lines = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql);
-             ResultSet rows = statement.executeQuery()) {
+                PreparedStatement statement = connection.prepareStatement(sql);
+                ResultSet rows = statement.executeQuery()) {
             while (rows.next()) {
                 StringBuilder line = new StringBuilder();
                 for (int i = 1; i <= columns; i++) {

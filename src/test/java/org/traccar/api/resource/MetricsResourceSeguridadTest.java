@@ -1,6 +1,5 @@
 package org.traccar.api.resource;
 
-import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.traccar.config.Config;
@@ -9,6 +8,7 @@ import org.traccar.seguridad.VigiaSeguridad;
 import org.traccar.session.ConnectionManager;
 import org.traccar.session.FleetMetrics;
 
+import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;

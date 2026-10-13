@@ -16,6 +16,10 @@
 package org.traccar.api.resource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.traccar.api.BaseResource;
+import org.traccar.model.Device;
+import org.traccar.storage.StorageException;
+
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -28,11 +32,6 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.traccar.api.BaseResource;
-import org.traccar.model.Device;
-import org.traccar.storage.StorageException;
-
-import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -44,6 +43,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.LongPredicate;
+import javax.sql.DataSource;
 
 /**
  * The inbox: every notification the user was sent, read or not (improvement 93).
@@ -111,8 +111,8 @@ public class AvisoResource extends BaseResource {
     private long contar(LongPredicate puedeVer) throws SQLException {
         Map<Long, Long> porEquipo = new HashMap<>();
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT e.deviceid, COUNT(*) FROM nx_avisos a JOIN tc_events e ON e.id = a.eventid"
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT e.deviceid, COUNT(*) FROM nx_avisos a JOIN tc_events e ON e.id = a.eventid"
                              + " WHERE a.userid = ? AND a.leido IS NULL GROUP BY e.deviceid")) {
             statement.setLong(1, getUserId());
             try (ResultSet rows = statement.executeQuery()) {
@@ -157,8 +157,8 @@ public class AvisoResource extends BaseResource {
         Long ultimo = null;
         int leidas = 0;
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT a.id, a.creado, a.leido, e.id, e.type, e.eventtime, e.deviceid, e.positionid,"
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT a.id, a.creado, a.leido, e.id, e.type, e.eventtime, e.deviceid, e.positionid,"
                              + " e.geofenceid, e.maintenanceid, e.attributes"
                              + " FROM nx_avisos a JOIN tc_events e ON e.id = a.eventid"
                              + " WHERE a.userid = ?" + (antes != null ? " AND a.id < ?" : "")

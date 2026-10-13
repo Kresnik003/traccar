@@ -15,8 +15,6 @@
  */
 package org.traccar.seguridad;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.api.EnlacesDirectos;
@@ -37,6 +35,8 @@ import org.traccar.telegram.ClienteTelegram;
 import org.traccar.telegram.FirmaBoton;
 import org.traccar.telegram.ReceptorBoton;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;

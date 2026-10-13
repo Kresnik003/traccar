@@ -17,6 +17,12 @@ package org.traccar.api.resource;
 
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
+import org.traccar.config.Config;
+import org.traccar.config.Keys;
+import org.traccar.seguridad.VigiaSeguridad;
+import org.traccar.session.ConnectionManager;
+import org.traccar.session.FleetMetrics;
+
 import jakarta.annotation.security.PermitAll;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -25,12 +31,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Response;
-import org.traccar.config.Config;
-import org.traccar.config.Keys;
-import org.traccar.seguridad.VigiaSeguridad;
-import org.traccar.session.ConnectionManager;
-import org.traccar.session.FleetMetrics;
-
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;

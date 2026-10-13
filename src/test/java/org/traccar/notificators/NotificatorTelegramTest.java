@@ -1,12 +1,5 @@
 package org.traccar.notificators;
 
-import jakarta.ws.rs.client.AsyncInvoker;
-import jakarta.ws.rs.client.Client;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.client.Invocation;
-import jakarta.ws.rs.client.InvocationCallback;
-import jakarta.ws.rs.client.WebTarget;
-import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
@@ -16,6 +9,13 @@ import org.traccar.notification.EsperaReintento;
 import org.traccar.notification.NotificationFormatter;
 import org.traccar.notification.NotificationMessage;
 
+import jakarta.ws.rs.client.AsyncInvoker;
+import jakarta.ws.rs.client.Client;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.client.Invocation;
+import jakarta.ws.rs.client.InvocationCallback;
+import jakarta.ws.rs.client.WebTarget;
+import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;

@@ -15,11 +15,6 @@
  */
 package org.traccar.api.resource;
 
-import jakarta.inject.Inject;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.MediaType;
 import org.traccar.api.BaseResource;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
@@ -35,21 +30,26 @@ import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Request;
 
-import javax.sql.DataSource;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 import java.io.File;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.lang.management.ManagementFactory;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.sql.DataSource;
 
 /**
  * Server health for administrators, as results rather than raw numbers.
@@ -88,9 +88,9 @@ public class SaludResource extends BaseResource {
     private List<HealthEvaluator.DeviceOldest> oldestPerDevice() throws SQLException {
         List<HealthEvaluator.DeviceOldest> result = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT deviceid, MIN(fixtime) FROM tc_positions GROUP BY deviceid");
-             ResultSet rows = statement.executeQuery()) {
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT deviceid, MIN(fixtime) FROM tc_positions GROUP BY deviceid");
+                ResultSet rows = statement.executeQuery()) {
             while (rows.next()) {
                 if (rows.getTimestamp(2) != null) {
                     result.add(new HealthEvaluator.DeviceOldest(rows.getLong(1), rows.getTimestamp(2).getTime()));
@@ -124,8 +124,8 @@ public class SaludResource extends BaseResource {
      */
     private long oldest(long deviceId, long positionId, String condition) throws SQLException {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT fixtime FROM tc_positions WHERE deviceid = ? AND id <> ?" + condition
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT fixtime FROM tc_positions WHERE deviceid = ? AND id <> ?" + condition
                              + " ORDER BY fixtime LIMIT 1")) {
             statement.setLong(1, deviceId);
             statement.setLong(2, positionId);
@@ -246,11 +246,10 @@ public class SaludResource extends BaseResource {
         return result;
     }
 
-
     private long contarFilas(String tabla) {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM " + tabla);
-             ResultSet rows = statement.executeQuery()) {
+                PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM " + tabla);
+                ResultSet rows = statement.executeQuery()) {
             return rows.next() ? rows.getLong(1) : 0;
         } catch (SQLException e) {
             return 0;

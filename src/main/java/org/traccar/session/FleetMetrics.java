@@ -16,7 +16,6 @@
 package org.traccar.session;
 
 import jakarta.inject.Singleton;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;

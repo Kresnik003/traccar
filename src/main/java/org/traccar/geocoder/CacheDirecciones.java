@@ -19,7 +19,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.database.StatisticsManager;
 
-import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -27,6 +26,7 @@ import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.Timestamp;
 import java.util.Locale;
+import javax.sql.DataSource;
 
 /**
  * A geocoding cache that survives a restart (improvement 19).
@@ -138,8 +138,8 @@ public class CacheDirecciones implements Geocoder {
         @Override
         public String leer(String clave) throws SQLException {
             try (Connection connection = dataSource.getConnection();
-                 PreparedStatement statement = connection.prepareStatement(
-                         "SELECT direccion FROM nx_direcciones WHERE clave = ?")) {
+                    PreparedStatement statement = connection.prepareStatement(
+                            "SELECT direccion FROM nx_direcciones WHERE clave = ?")) {
                 statement.setString(1, clave);
                 try (ResultSet rows = statement.executeQuery()) {
                     return rows.next() ? rows.getString(1) : null;
@@ -150,8 +150,8 @@ public class CacheDirecciones implements Geocoder {
         @Override
         public void guardar(String clave, String direccion) throws SQLException {
             try (Connection connection = dataSource.getConnection();
-                 PreparedStatement statement = connection.prepareStatement(
-                         "INSERT INTO nx_direcciones (clave, direccion, creada) VALUES (?, ?, ?)")) {
+                    PreparedStatement statement = connection.prepareStatement(
+                            "INSERT INTO nx_direcciones (clave, direccion, creada) VALUES (?, ?, ?)")) {
                 statement.setString(1, clave);
                 statement.setString(2, direccion.length() > ANCHO ? direccion.substring(0, ANCHO) : direccion);
                 statement.setTimestamp(3, new Timestamp(System.currentTimeMillis()));

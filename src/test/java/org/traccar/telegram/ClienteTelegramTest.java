@@ -1,16 +1,16 @@
 package org.traccar.telegram;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+import org.traccar.config.Config;
+import org.traccar.config.Keys;
+
 import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.client.Invocation;
 import jakarta.ws.rs.client.WebTarget;
 import jakarta.ws.rs.core.Response;
-import org.junit.jupiter.api.Test;
-import org.traccar.config.Config;
-import org.traccar.config.Keys;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -186,10 +186,10 @@ public class ClienteTelegramTest {
         // Taken for "no messages" it would keep BuzonTelegramSinLeer quiet while
         // nothing is being read.
         for (String cuerpo : new String[] {
-            "{\"ok\":false,\"result\":[{\"update_id\":5}]}",
-            "{\"ok\":true}",
-            "{\"result\":[]}",
-            "{\"ok\":true,\"result\":{}}",
+                "{\"ok\":false,\"result\":[{\"update_id\":5}]}",
+                "{\"ok\":true}",
+                "{\"result\":[]}",
+                "{\"ok\":true,\"result\":{}}",
         }) {
             var lectura = cliente(200, cuerpo).leer(0, 25);
             assertFalse(lectura.ok(), cuerpo);

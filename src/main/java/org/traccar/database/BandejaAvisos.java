@@ -15,17 +15,17 @@
  */
 package org.traccar.database;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.sql.DataSource;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.Timestamp;
+import javax.sql.DataSource;
 
 /**
  * Every notification a user was sent, so that it can be read again later and
@@ -69,8 +69,8 @@ public class BandejaAvisos {
             return false;
         }
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "INSERT INTO nx_avisos (userid, eventid, creado) VALUES (?, ?, ?)")) {
+                PreparedStatement statement = connection.prepareStatement(
+                        "INSERT INTO nx_avisos (userid, eventid, creado) VALUES (?, ?, ?)")) {
             statement.setLong(1, userId);
             statement.setLong(2, eventId);
             statement.setTimestamp(3, new Timestamp(System.currentTimeMillis()));

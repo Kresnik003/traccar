@@ -16,6 +16,11 @@
 package org.traccar.api.resource;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.traccar.api.BaseResource;
+import org.traccar.config.Config;
+import org.traccar.config.Keys;
+import org.traccar.storage.StorageException;
+
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.Consumes;
@@ -27,12 +32,6 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.traccar.api.BaseResource;
-import org.traccar.config.Config;
-import org.traccar.config.Keys;
-import org.traccar.storage.StorageException;
-
-import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -43,6 +42,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.sql.DataSource;
 
 /**
  * The privacy notice and who accepted which version of it (improvement 73).
@@ -73,8 +73,8 @@ public class ConsentimientoResource extends BaseResource {
 
     private Timestamp accepted(long userId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT momento FROM nx_consentimientos WHERE userid = ? AND version = ?")) {
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT momento FROM nx_consentimientos WHERE userid = ? AND version = ?")) {
             statement.setLong(1, userId);
             statement.setString(2, version());
             try (ResultSet rows = statement.executeQuery()) {
@@ -130,8 +130,8 @@ public class ConsentimientoResource extends BaseResource {
                     .entity(Map.of("version", version())).build());
         }
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "INSERT INTO nx_consentimientos (userid, version, momento, direccion) VALUES (?, ?, ?, ?)")) {
+                PreparedStatement statement = connection.prepareStatement(
+                        "INSERT INTO nx_consentimientos (userid, version, momento, direccion) VALUES (?, ?, ?, ?)")) {
             statement.setLong(1, getUserId());
             statement.setString(2, version());
             statement.setTimestamp(3, new Timestamp(System.currentTimeMillis()));
@@ -155,8 +155,8 @@ public class ConsentimientoResource extends BaseResource {
         permissionsService.checkAdmin(getUserId());
         List<Map<String, Object>> result = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT u.id, u.name, c.momento FROM tc_users u"
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT u.id, u.name, c.momento FROM tc_users u"
                              + " LEFT JOIN nx_consentimientos c ON c.userid = u.id AND c.version = ?"
                              + " ORDER BY c.momento IS NULL DESC, u.name")) {
             statement.setString(1, version());

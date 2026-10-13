@@ -15,13 +15,13 @@
  */
 package org.traccar.telegram;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.Optional;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * The data behind a Telegram button comes back from outside, so it is signed:

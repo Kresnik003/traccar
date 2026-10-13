@@ -1,13 +1,13 @@
 package org.traccar.api.security;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.ws.rs.container.ContainerRequestContext;
-import jakarta.ws.rs.container.ResourceInfo;
 import org.junit.jupiter.api.Test;
 import org.traccar.api.resource.MetricsResource;
 import org.traccar.api.resource.ServerResource;
 import org.traccar.database.StatisticsManager;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.container.ResourceInfo;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;

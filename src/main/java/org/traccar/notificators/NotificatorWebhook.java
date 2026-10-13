@@ -16,8 +16,6 @@
 package org.traccar.notificators;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.UnitsConverter;
@@ -30,8 +28,8 @@ import org.traccar.notification.NotificationFormatter;
 import org.traccar.notification.NotificationMessage;
 import org.traccar.session.cache.CacheManager;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -45,6 +43,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * Webhooks salientes (mejora 25): cada aviso, por POST y en JSON, a la URL que

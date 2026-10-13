@@ -39,7 +39,6 @@ import java.util.Date;
 @Consumes(MediaType.APPLICATION_JSON)
 public class ShareResource extends BaseResource {
 
-
     @Inject
     private EnlacesDirectos enlacesDirectos;
 

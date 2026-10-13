@@ -34,7 +34,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import javax.sql.DataSource;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.sql.Connection;
@@ -44,6 +43,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
+import javax.sql.DataSource;
 
 @Path("password")
 @Produces(MediaType.APPLICATION_JSON)

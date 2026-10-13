@@ -17,11 +17,11 @@ package org.traccar.helper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;

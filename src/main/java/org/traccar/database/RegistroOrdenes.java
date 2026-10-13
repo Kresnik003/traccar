@@ -15,8 +15,6 @@
  */
 package org.traccar.database;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.model.Orden;
@@ -26,6 +24,8 @@ import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Order;
 import org.traccar.storage.query.Request;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;

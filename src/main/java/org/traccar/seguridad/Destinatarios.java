@@ -15,8 +15,6 @@
  */
 package org.traccar.seguridad;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
 import org.traccar.model.Motorista;
@@ -31,6 +29,8 @@ import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Order;
 import org.traccar.storage.query.Request;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;

@@ -15,17 +15,16 @@
  */
 package org.traccar.api.resource;
 
+import org.traccar.api.BaseResource;
+import org.traccar.model.Device;
+import org.traccar.storage.StorageException;
+
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
-import org.traccar.api.BaseResource;
-import org.traccar.model.Device;
-import org.traccar.storage.StorageException;
-
-import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -34,6 +33,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.sql.DataSource;
 
 /**
  * Who read the location history of a device, and when.
@@ -58,8 +58,8 @@ public class AccesoResource extends BaseResource {
         boolean admin = !permissionsService.notAdmin(getUserId());
         List<Map<String, Object>> result = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT momento, userid, usuario, que, desde, hasta, direccion FROM nx_accesos"
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT momento, userid, usuario, que, desde, hasta, direccion FROM nx_accesos"
                              + " WHERE deviceid = ? ORDER BY momento DESC LIMIT " + LIMIT)) {
             statement.setLong(1, deviceId);
             try (ResultSet rows = statement.executeQuery()) {

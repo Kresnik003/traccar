@@ -1,7 +1,5 @@
 package org.traccar.api.resource;
 
-import jakarta.ws.rs.core.SecurityContext;
-import jakarta.ws.rs.WebApplicationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -9,16 +7,18 @@ import org.mockito.ArgumentCaptor;
 import org.traccar.api.BaseResource;
 import org.traccar.api.security.PermissionsService;
 import org.traccar.api.security.UserPrincipal;
+import org.traccar.helper.LogAction;
 import org.traccar.model.Contacto;
 import org.traccar.model.Device;
 import org.traccar.model.User;
-import org.traccar.helper.LogAction;
 import org.traccar.seguridad.Destinatarios;
 import org.traccar.seguridad.SitiosPropios;
 import org.traccar.storage.Storage;
 import org.traccar.telegram.ClienteTelegram;
 import org.traccar.telegram.CodigosAlta;
 
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.SecurityContext;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;

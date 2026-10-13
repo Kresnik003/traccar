@@ -15,8 +15,6 @@
  */
 package org.traccar.notification;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
@@ -29,6 +27,8 @@ import org.traccar.model.User;
 import org.traccar.notificators.Notificator;
 import org.traccar.session.cache.CacheManager;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.TimeZone;

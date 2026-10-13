@@ -1,12 +1,12 @@
 package org.traccar.seguridad;
 
 import com.google.inject.servlet.RequestScoped;
-import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 import org.traccar.api.EnlacesDirectos;
 import org.traccar.telegram.BuzonTelegram;
 import org.traccar.telegram.ClienteTelegram;
 
+import jakarta.inject.Inject;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.util.ArrayList;

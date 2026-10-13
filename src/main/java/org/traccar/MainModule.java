@@ -57,6 +57,7 @@ import org.traccar.geocoder.AutoNaviGeocoder;
 import org.traccar.geocoder.BaiduGeocoder;
 import org.traccar.geocoder.BanGeocoder;
 import org.traccar.geocoder.BingMapsGeocoder;
+import org.traccar.geocoder.CacheDirecciones;
 import org.traccar.geocoder.FactualGeocoder;
 import org.traccar.geocoder.GeoapifyGeocoder;
 import org.traccar.geocoder.GeocodeFarmGeocoder;
@@ -65,7 +66,6 @@ import org.traccar.geocoder.GeocodeXyzGeocoder;
 import org.traccar.geocoder.Geocoder;
 import org.traccar.geocoder.GisgraphyGeocoder;
 import org.traccar.geocoder.GoogleGeocoder;
-import org.traccar.geocoder.CacheDirecciones;
 import org.traccar.geocoder.GuardedGeocoder;
 import org.traccar.geocoder.HereGeocoder;
 import org.traccar.geocoder.LocationIqGeocoder;
@@ -114,12 +114,12 @@ import jakarta.annotation.Nullable;
 import jakarta.inject.Singleton;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
-import javax.sql.DataSource;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import javax.sql.DataSource;
 
 public class MainModule extends AbstractModule {
 

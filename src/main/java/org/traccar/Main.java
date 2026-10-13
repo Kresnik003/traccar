@@ -23,9 +23,9 @@ import org.slf4j.LoggerFactory;
 import org.traccar.broadcast.BroadcastService;
 import org.traccar.schedule.ScheduleManager;
 import org.traccar.storage.DatabaseModule;
+import org.traccar.telegram.BuzonTelegram;
 import org.traccar.web.WebModule;
 import org.traccar.web.WebServer;
-import org.traccar.telegram.BuzonTelegram;
 
 import java.io.File;
 import java.lang.management.ManagementFactory;

@@ -15,18 +15,6 @@
  */
 package org.traccar.api.resource;
 
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.DELETE;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.PUT;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
-import jakarta.inject.Inject;
 import org.traccar.api.BaseResource;
 import org.traccar.model.Device;
 import org.traccar.model.Quedada;
@@ -40,17 +28,28 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
-import javax.sql.DataSource;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import javax.sql.DataSource;
 
 /**
  * Group rides, who watches them and which trackers take part.
@@ -410,7 +409,6 @@ public class QuedadaResource extends BaseResource {
         return Response.noContent().build();
     }
 
-
     /**
      * The classification of a ride, as an ordered table (improvement 51).
      *
@@ -429,8 +427,8 @@ public class QuedadaResource extends BaseResource {
         visible(id);
         List<Resultado> result = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT deviceid, dorsal, vueltas, mejorms, mejornumero, totalms, puesto"
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT deviceid, dorsal, vueltas, mejorms, mejornumero, totalms, puesto"
                              + " FROM nx_resultados WHERE quedadaid = ? ORDER BY puesto")) {
             statement.setLong(1, id);
             try (ResultSet rows = statement.executeQuery()) {

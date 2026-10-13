@@ -48,7 +48,7 @@ public class DestinatariosBaseRealTest {
 
     private void sql(String... sentencias) throws Exception {
         try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
+                Statement statement = connection.createStatement()) {
             for (String sentencia : sentencias) {
                 statement.execute(sentencia);
             }
@@ -123,8 +123,8 @@ public class DestinatariosBaseRealTest {
         destinatarios.elegir(8, 6);
         destinatarios.elegir(8, 2);
         try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement();
-             var filas = statement.executeQuery("SELECT COUNT(*) FROM nx_motoristas WHERE deviceid = 8")) {
+                Statement statement = connection.createStatement();
+                var filas = statement.executeQuery("SELECT COUNT(*) FROM nx_motoristas WHERE deviceid = 8")) {
             filas.next();
             assertEquals(1, filas.getInt(1));
         }

@@ -97,7 +97,7 @@ public class MetricsResourceAccesoTest {
         config.setJdbcUrl("jdbc:h2:mem:pool-metricas-acceso;DB_CLOSE_DELAY=-1");
         config.setMaximumPoolSize(4);
         try (HikariDataSource dataSource = new HikariDataSource(config);
-             Connection ignored = dataSource.getConnection()) {
+                Connection ignored = dataSource.getConnection()) {
             String texto = (String) resource("secreto", dataSource)
                     .get(basica("nordes-metrics:secreto")).getEntity();
             assertTrue(texto.contains("nordes_devices_connected 3\n"), texto);

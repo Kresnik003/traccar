@@ -1,8 +1,6 @@
 package org.traccar.api.resource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.SecurityContext;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +19,8 @@ import org.traccar.storage.query.Request;
 import org.traccar.telegram.ClienteTelegram;
 import org.traccar.telegram.RespuestaTelegram;
 
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.SecurityContext;
 import java.lang.reflect.Field;
 import java.sql.Connection;
 import java.sql.Statement;
@@ -64,7 +64,7 @@ public class QuedadaConvocatoriaResourceTest {
 
     private void sql(String... sentencias) throws Exception {
         try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
+                Statement statement = connection.createStatement()) {
             for (String sentencia : sentencias) {
                 statement.execute(sentencia);
             }

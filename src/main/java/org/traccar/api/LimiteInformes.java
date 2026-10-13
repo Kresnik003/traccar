@@ -15,6 +15,8 @@
  */
 package org.traccar.api;
 
+import org.traccar.api.security.UserPrincipal;
+
 import jakarta.annotation.Priority;
 import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.WebApplicationException;
@@ -23,8 +25,6 @@ import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.container.ContainerResponseFilter;
 import jakarta.ws.rs.core.Response;
-import org.traccar.api.security.UserPrincipal;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;

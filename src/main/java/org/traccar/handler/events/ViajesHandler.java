@@ -15,10 +15,11 @@
  */
 package org.traccar.handler.events;
 
-import jakarta.inject.Inject;
 import org.traccar.model.Position;
 import org.traccar.seguridad.ViajesFamilia;
 import org.traccar.session.cache.CacheManager;
+
+import jakarta.inject.Inject;
 
 /**
  * Hands every position to the trips of improvement 115. It raises no event of

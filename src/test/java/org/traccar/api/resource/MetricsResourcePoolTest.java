@@ -18,7 +18,7 @@ public class MetricsResourcePoolTest {
         config.setMaximumPoolSize(3);
         config.setMinimumIdle(1);
         try (HikariDataSource dataSource = new HikariDataSource(config);
-             Connection ignored = dataSource.getConnection()) {
+                Connection ignored = dataSource.getConnection()) {
             var pool = MetricsResource.estadoPool(dataSource);
             assertEquals(1, pool.activas());
             assertEquals(3, pool.maximo());

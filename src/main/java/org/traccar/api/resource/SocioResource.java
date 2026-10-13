@@ -17,13 +17,6 @@ package org.traccar.api.resource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import jakarta.inject.Inject;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.StreamingOutput;
 import org.traccar.api.BaseResource;
 import org.traccar.helper.CsvLine;
 import org.traccar.model.Device;
@@ -36,7 +29,13 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
-import javax.sql.DataSource;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.StreamingOutput;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -48,6 +47,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import javax.sql.DataSource;
 
 /**
  * Everything the server holds about one member, in one file they can keep.
@@ -78,8 +78,8 @@ public class SocioResource extends BaseResource {
     private List<Long> ownDevices(long userId) throws SQLException {
         List<Long> result = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT deviceid FROM tc_user_device WHERE userid = ? ORDER BY deviceid")) {
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT deviceid FROM tc_user_device WHERE userid = ? ORDER BY deviceid")) {
             statement.setLong(1, userId);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
@@ -111,8 +111,8 @@ public class SocioResource extends BaseResource {
         zip.putNextEntry(new ZipEntry(name));
         zip.write(header.getBytes(StandardCharsets.UTF_8));
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+                PreparedStatement statement = connection.prepareStatement(
+                        sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
             statement.setFetchSize(Integer.MIN_VALUE);
             statement.setLong(1, deviceId);
             try (ResultSet rows = statement.executeQuery()) {

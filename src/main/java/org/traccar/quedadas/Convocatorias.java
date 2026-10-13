@@ -15,8 +15,6 @@
  */
 package org.traccar.quedadas;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.model.Device;
@@ -34,6 +32,8 @@ import org.traccar.storage.query.Request;
 import org.traccar.telegram.ClienteTelegram;
 import org.traccar.telegram.RespuestaTelegram;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Base64;

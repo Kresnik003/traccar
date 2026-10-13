@@ -15,13 +15,12 @@
  */
 package org.traccar.schedule;
 
-import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 
-import javax.sql.DataSource;
+import jakarta.inject.Inject;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -33,6 +32,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 
 /**
  * Deletes positions and events older than database.positionRetentionDays.
@@ -143,8 +143,8 @@ public class TaskPositionRetention extends SingleScheduleTask {
     private Set<Long> ids(String sql) throws SQLException {
         Set<Long> result = new HashSet<>();
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql);
-             ResultSet rows = statement.executeQuery()) {
+                PreparedStatement statement = connection.prepareStatement(sql);
+                ResultSet rows = statement.executeQuery()) {
             while (rows.next()) {
                 result.add(rows.getLong(1));
             }
@@ -154,8 +154,8 @@ public class TaskPositionRetention extends SingleScheduleTask {
 
     private int deleteByDevice(String table, long deviceId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "DELETE FROM " + table + " WHERE deviceid = ? LIMIT " + BATCH)) {
+                PreparedStatement statement = connection.prepareStatement(
+                        "DELETE FROM " + table + " WHERE deviceid = ? LIMIT " + BATCH)) {
             statement.setLong(1, deviceId);
             return statement.executeUpdate();
         }
@@ -204,7 +204,7 @@ public class TaskPositionRetention extends SingleScheduleTask {
 
     private int execute(String sql, Timestamp cutoff) throws SQLException {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql)) {
+                PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setTimestamp(1, cutoff);
             return statement.executeUpdate();
         }
@@ -310,8 +310,8 @@ public class TaskPositionRetention extends SingleScheduleTask {
         Timestamp invalidCutoff = cutoff(days);
         Map<Long, Long> devices = new HashMap<>();
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("SELECT id, positionid FROM tc_devices");
-             ResultSet rows = statement.executeQuery()) {
+                PreparedStatement statement = connection.prepareStatement("SELECT id, positionid FROM tc_devices");
+                ResultSet rows = statement.executeQuery()) {
             while (rows.next()) {
                 devices.put(rows.getLong(1), rows.getLong(2));
             }
@@ -323,8 +323,8 @@ public class TaskPositionRetention extends SingleScheduleTask {
         for (Map.Entry<Long, Long> device : devices.entrySet()) {
             removed += purge(() -> {
                 try (Connection connection = dataSource.getConnection();
-                     PreparedStatement statement = connection.prepareStatement(
-                             "DELETE FROM tc_positions WHERE deviceid = ? AND fixtime < ?"
+                        PreparedStatement statement = connection.prepareStatement(
+                                "DELETE FROM tc_positions WHERE deviceid = ? AND fixtime < ?"
                                      + " AND (valid = 0 OR (latitude = 0 AND longitude = 0))"
                                      + " AND id <> ? LIMIT " + BATCH)) {
                     statement.setLong(1, device.getKey());

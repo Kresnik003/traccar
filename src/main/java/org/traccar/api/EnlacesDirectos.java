@@ -15,8 +15,6 @@
  */
 package org.traccar.api;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.api.resource.EnlacesCompartidos;
@@ -37,6 +35,8 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.Date;
